@@ -13,10 +13,10 @@ import (
 )
 
 // Check performs a protocol-level handshake against host:port and returns
-// nil only when a genuine protocol response comes back within timeout. Any
-// response at all counts as success for "java" — parsing the JSON payload is
-// slp.Status's job and it already treats a malformed-but-present response as
-// reachable, since the point here is connectivity, not payload validity.
+// nil only when a genuine protocol response comes back within timeout. For
+// "java", slp.Status still requires a well-formed status packet (correct
+// packet ID, valid JSON) — a server that responds but with a broken payload
+// is reported as unreachable, not treated as connectivity success.
 func Check(protocol, host string, port int, timeout time.Duration) error {
 	switch protocol {
 	case "java":

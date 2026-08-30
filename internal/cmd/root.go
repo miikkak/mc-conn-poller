@@ -3,6 +3,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -32,6 +33,10 @@ a list of structs has no sane single-flag representation.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		if configReadErr != nil {
+			return fmt.Errorf("reading configuration: %w", configReadErr)
+		}
+
 		var cfg config.Config
 		if err := viper.Unmarshal(&cfg); err != nil {
 			return fmt.Errorf("parsing configuration: %w", err)
@@ -83,6 +88,13 @@ func init() {
 	}
 }
 
+// configReadErr holds any error from initConfig's viper.ReadInConfig other
+// than "file not found" — RunE reports it before Validate gets a chance to
+// produce a misleading "at least one target must be configured" for what's
+// actually a YAML syntax error. cobra.OnInitialize hooks can't return an
+// error directly, hence the package var.
+var configReadErr error
+
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
 	if cfgFile != "" {
@@ -97,10 +109,12 @@ func initConfig() {
 	viper.SetEnvPrefix("mccp")
 	viper.AutomaticEnv()
 
-	// Indicates viper.ConfigFileNotFoundError if no config file is present,
-	// which is a hard failure in practice here (no targets means nothing to
-	// do), but that's Validate's job to report clearly, not initConfig's.
-	_ = viper.ReadInConfig()
+	if err := viper.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			configReadErr = err
+		}
+	}
 }
 
 func newLogger(level string, useSyslog bool) (*slog.Logger, error) {
