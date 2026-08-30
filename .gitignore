@@ -1,0 +1,7 @@
+/mc-conn-poller
+/mc-conn-poller.exe
+/dist/
+*.tar.gz
+*.swp
+.DS_Store
+node_modules/

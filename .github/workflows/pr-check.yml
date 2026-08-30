@@ -1,0 +1,15 @@
+---
+name: PR Check
+
+on: # yamllint disable-line rule:truthy
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  pre-commit:
+    uses: miikkak/workflows/.github/workflows/pr-check.yml@4da418a936c68f8d0cdc9ea20fe337331c7f1a7c # main
+    secrets: inherit

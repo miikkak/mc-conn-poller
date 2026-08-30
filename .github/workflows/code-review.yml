@@ -1,0 +1,20 @@
+---
+name: Code Review
+
+on: # yamllint disable-line rule:truthy
+  pull_request:
+    types: [opened, ready_for_review, synchronize]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+  actions: write
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    uses: miikkak/workflows/.github/workflows/code-review.yml@4da418a936c68f8d0cdc9ea20fe337331c7f1a7c # main
+    with:
+      enabled: true
+    secrets: inherit

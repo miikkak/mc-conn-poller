@@ -1,0 +1,25 @@
+---
+name: PR Validation
+
+on: # yamllint disable-line rule:truthy
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  ci-cd:
+    uses: miikkak/workflows/.github/workflows/ci-cd.yml@4da418a936c68f8d0cdc9ea20fe337331c7f1a7c # main
+    with:
+      runner: '["self-hosted","linux","x64"]'
+      test-runner: '["self-hosted","linux","x64"]'
+      code-paths: >-
+        '**/*.go', 'go.mod', 'go.sum', '.github/workflows/**',
+        '.pre-commit-config.yaml', '.releaserc.json'
+      language-setup: go
