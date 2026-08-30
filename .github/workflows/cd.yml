@@ -1,0 +1,32 @@
+---
+name: Post-Merge Pipeline
+
+on: # yamllint disable-line rule:truthy
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  cd:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    uses: miikkak/workflows/.github/workflows/cd.yml@4da418a936c68f8d0cdc9ea20fe337331c7f1a7c # main
+    secrets:
+      SEMANTIC_RELEASE_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
+    with:
+      runner: '["self-hosted","linux","x64"]'
+      test-runner: '["self-hosted","linux","x64"]'
+      code-paths: >-
+        '**/*.go', 'go.mod', 'go.sum', '.github/workflows/**',
+        '.pre-commit-config.yaml', '.releaserc.json'
+      language-setup: go
