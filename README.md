@@ -56,18 +56,20 @@ receives `SIGINT`/`SIGTERM`.
 
 ### OpenRC
 
+The `init.d`/`conf.d` service definitions live in
+[miikkak/scripts](https://github.com/miikkak/scripts) (`init.d/mc-conn-poller`,
+`conf.d/mc-conn-poller`), not in this repo — same as `ripe-atlas` and
+`globalping-probe`, the other multi-host network probes in this fleet.
+`scripts`' own release pipeline pushes `init.d/*` to `/etc/init.d`
+automatically; `conf.d/*` is deployed via server-config Ansible. This repo
+only builds and installs the binary:
+
 ```shell
-make install                                                # binary -> /usr/local/sbin
-cp etc/mc-conn-poller.yaml.example /usr/local/etc/mc-conn-poller.yaml
-cp conf.d/mc-conn-poller.example /etc/conf.d/mc-conn-poller
-cp init.d/mc-conn-poller /etc/init.d/mc-conn-poller
-useradd -r -s /sbin/nologin -d /var/lib/mc-conn-poller mc-conn-poller
-rc-update add mc-conn-poller default
-rc-service mc-conn-poller start
+make install    # binary -> /usr/local/sbin
 ```
 
-Edit `/usr/local/etc/mc-conn-poller.yaml` first — at least one target with
-a real `ping_url` is required.
+Copy `etc/mc-conn-poller.yaml.example` to `/usr/local/etc/mc-conn-poller.yaml`
+and edit it — at least one target with a real `ping_url` is required.
 
 ## Building
 
