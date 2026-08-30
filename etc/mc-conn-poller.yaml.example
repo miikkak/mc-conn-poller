@@ -1,0 +1,32 @@
+# mc-conn-poller configuration — template.
+# Copy to /usr/local/etc/mc-conn-poller.yaml and edit.
+#
+# Targets are YAML-only — no CLI flag or MCCP_ env var overrides a target
+# list, since a list of structs has no sane single-flag representation.
+
+# Poll interval used for any target that doesn't set its own "interval".
+#default_interval: 60s
+
+# Probe timeout used for any target that doesn't set its own "timeout".
+#default_timeout: 5s
+
+# "debug", "info", "warn", or "error".
+#log_level: info
+
+# Send logs to syslog (facility daemon) instead of stderr.
+#log_syslog: false
+
+targets:
+  - name: proxy-java
+    protocol: java
+    host: play.example.com
+    port: 25565
+    # interval: 60s        # optional, overrides default_interval
+    # timeout: 5s          # optional, overrides default_timeout
+    ping_url: https://hc-ping.com/00000000-0000-0000-0000-000000000000
+
+  - name: proxy-bedrock
+    protocol: bedrock
+    host: play.example.com
+    port: 19132
+    ping_url: https://hc-ping.com/11111111-1111-1111-1111-111111111111

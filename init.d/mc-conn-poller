@@ -1,0 +1,58 @@
+#!/sbin/openrc-run
+# shellcheck shell=bash
+
+name="Minecraft Connectivity Poller"
+description="Probes the Minecraft proxy at the protocol level and reports success to Healthchecks.io"
+
+# Default configuration (override in /etc/conf.d/mc-conn-poller)
+MCCP_BINARY="${MCCP_BINARY:-/usr/local/sbin/mc-conn-poller}"
+MCCP_CONFIG="${MCCP_CONFIG:-/usr/local/etc/mc-conn-poller.yaml}"
+MCCP_LOG_DIR="${MCCP_LOG_DIR:-/var/log/mc-conn-poller}"
+MCCP_USER="${MCCP_USER:-mc-conn-poller}"
+MCCP_GROUP="${MCCP_GROUP:-mc-conn-poller}"
+
+supervisor="supervise-daemon"
+command="${MCCP_BINARY}"
+command_args="--config ${MCCP_CONFIG}"
+command_user="${MCCP_USER}:${MCCP_GROUP}"
+pidfile="/run/mc-conn-poller.pid"
+output_log="${MCCP_LOG_DIR}/mc-conn-poller.log"
+error_log="${MCCP_LOG_DIR}/mc-conn-poller.log"
+
+depend() {
+  need net
+  use logger
+}
+
+start_pre() {
+  if [[ ! -x "${MCCP_BINARY}" ]]; then
+    eerror "mc-conn-poller binary not found or not executable: ${MCCP_BINARY}"
+    return 1
+  fi
+
+  if [[ ! -r "${MCCP_CONFIG}" ]]; then
+    eerror "Config file not readable: ${MCCP_CONFIG}"
+    eerror "Copy etc/mc-conn-poller.yaml.example to ${MCCP_CONFIG} and edit it"
+    return 1
+  fi
+
+  if ! getent passwd "${MCCP_USER}" >/dev/null 2>&1; then
+    eerror "User '${MCCP_USER}' does not exist"
+    eerror "Create it with: useradd -r -s /sbin/nologin -d /var/lib/mc-conn-poller ${MCCP_USER}"
+    return 1
+  fi
+
+  if ! getent group "${MCCP_GROUP}" >/dev/null 2>&1; then
+    eerror "Group '${MCCP_GROUP}' does not exist"
+    eerror "Create it with: groupadd -r ${MCCP_GROUP}"
+    return 1
+  fi
+
+  if [[ ! -d "${MCCP_LOG_DIR}" ]]; then
+    ebegin "Creating log directory ${MCCP_LOG_DIR}"
+    mkdir -p "${MCCP_LOG_DIR}"
+    eend $? || return 1
+  fi
+  chown "${MCCP_USER}:${MCCP_GROUP}" "${MCCP_LOG_DIR}" || { eerror "Failed to set ownership on ${MCCP_LOG_DIR}"; return 1; }
+  chmod 0750 "${MCCP_LOG_DIR}" || { eerror "Failed to set permissions on ${MCCP_LOG_DIR}"; return 1; }
+}
