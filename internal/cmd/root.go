@@ -55,7 +55,13 @@ a list of structs has no sane single-flag representation.`,
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		return poller.Run(ctx, cfg, logger)
+		hostname, err := os.Hostname()
+		if err != nil {
+			hostname = "unknown"
+		}
+		info := poller.Info{Version: cmd.Version, Host: hostname}
+
+		return poller.Run(ctx, cfg, logger, info)
 	},
 }
 

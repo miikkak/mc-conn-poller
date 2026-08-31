@@ -14,6 +14,7 @@ package slp
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -25,20 +26,24 @@ import (
 
 const maxResponseLength = 1 << 20 // guards against a misbehaving peer claiming an absurd length
 
-// Status performs a Server List Ping against host:port and returns an error
-// unless a well-formed JSON status response is received within timeout.
-func Status(host string, port int, timeout time.Duration) error {
-	_, err := Query(host, port, timeout)
+// Status performs a Server List Ping against host:port over the given
+// network ("tcp", "tcp4", or "tcp6") and returns an error unless a
+// well-formed JSON status response is received within timeout. Canceling
+// ctx aborts an in-flight dial immediately rather than waiting out timeout.
+func Status(ctx context.Context, host string, port int, timeout time.Duration, network string) error {
+	_, err := Query(ctx, host, port, timeout, network)
 	return err
 }
 
-// Query performs a Server List Ping against host:port and returns the
-// decoded status response (version, players, MOTD, etc.) within timeout.
-func Query(host string, port int, timeout time.Duration) (map[string]any, error) {
+// Query performs a Server List Ping against host:port over the given
+// network ("tcp", "tcp4", or "tcp6") and returns the decoded status
+// response (version, players, MOTD, etc.) within timeout. Canceling ctx
+// aborts an in-flight dial immediately rather than waiting out timeout.
+func Query(ctx context.Context, host string, port int, timeout time.Duration, network string) (map[string]any, error) {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	deadline := time.Now().Add(timeout)
 
-	conn, err := net.DialTimeout("tcp", addr, timeout)
+	conn, err := (&net.Dialer{Timeout: timeout}).DialContext(ctx, network, addr)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", addr, err)
 	}
