@@ -31,23 +31,27 @@ const (
 // comes back within timeout. For "java", slp.Status still requires a
 // well-formed status packet (correct packet ID, valid JSON) — a server
 // that responds but with a broken payload is reported as unreachable, not
-// treated as connectivity success.
-func Check(protocol, host string, port int, timeout time.Duration, family IPFamily) error {
+// treated as connectivity success. Canceling ctx aborts an in-flight probe
+// immediately rather than waiting out timeout.
+func Check(ctx context.Context, protocol, host string, port int, timeout time.Duration, family IPFamily) error {
 	switch protocol {
 	case "java":
-		return slp.Status(host, port, timeout, "tcp"+string(family))
+		return slp.Status(ctx, host, port, timeout, "tcp"+string(family))
 	case "bedrock":
-		return bedrockPing(host, port, timeout, family)
+		return bedrockPing(ctx, host, port, timeout, family)
 	default:
 		return fmt.Errorf("unknown protocol %q", protocol)
 	}
 }
 
-func bedrockPing(host string, port int, timeout time.Duration, family IPFamily) error {
+func bedrockPing(ctx context.Context, host string, port int, timeout time.Duration, family IPFamily) error {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	dialer := raknet.Dialer{UpstreamDialer: familyDialer{network: "udp" + string(family)}}
-	response, err := dialer.PingTimeout(addr, timeout)
+	response, err := dialer.PingContext(ctx, addr)
 	if err != nil {
 		return fmt.Errorf("bedrock ping %s (udp%s): %w", addr, family, err)
 	}

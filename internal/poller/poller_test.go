@@ -35,7 +35,7 @@ func TestProbeOnceReportsOnlyOnProbeSuccess(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var pinged atomic.Bool
-			probeFn := func(string, string, int, time.Duration, probe.IPFamily) error { return tc.probeErr }
+			probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily) error { return tc.probeErr }
 			pingFn := func(context.Context, string, time.Duration, PingReport) error {
 				pinged.Store(true)
 				return nil
@@ -52,7 +52,7 @@ func TestProbeOnceReportsOnlyOnProbeSuccess(t *testing.T) {
 
 func TestProbeOnceSurvivesPingFailure(t *testing.T) {
 	target := config.Target{Name: "t", PingURL: "https://example.invalid/ping"}
-	probeFn := func(string, string, int, time.Duration, probe.IPFamily) error { return nil }
+	probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily) error { return nil }
 	pingFn := func(context.Context, string, time.Duration, PingReport) error { return errors.New("network error") }
 
 	// Must not panic; failure is logged and swallowed.
@@ -63,7 +63,7 @@ func TestProbeOnceReportsFamilyAndLatency(t *testing.T) {
 	target := config.Target{Name: "t", Protocol: "java", Host: "mc.example.invalid", Port: 25565, PingURL: "https://example.invalid/ping"}
 
 	var gotReport PingReport
-	probeFn := func(string, string, int, time.Duration, probe.IPFamily) error { return nil }
+	probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily) error { return nil }
 	pingFn := func(_ context.Context, _ string, _ time.Duration, report PingReport) error {
 		gotReport = report
 		return nil
@@ -86,7 +86,7 @@ func TestPollTargetProbesImmediatelyThenOnInterval(t *testing.T) {
 	target := config.Target{Name: "t", PingURL: "https://example.invalid/ping", Interval: 10 * time.Millisecond}
 
 	var probeCount atomic.Int32
-	probeFn := func(string, string, int, time.Duration, probe.IPFamily) error {
+	probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily) error {
 		probeCount.Add(1)
 		return nil
 	}
@@ -109,7 +109,7 @@ func TestPollTargetAlternatesIPFamilyAcrossRounds(t *testing.T) {
 
 	var mu sync.Mutex
 	var families []probe.IPFamily
-	probeFn := func(_ string, _ string, _ int, _ time.Duration, family probe.IPFamily) error {
+	probeFn := func(_ context.Context, _ string, _ string, _ int, _ time.Duration, family probe.IPFamily) error {
 		mu.Lock()
 		families = append(families, family)
 		mu.Unlock()
@@ -150,7 +150,7 @@ func TestRunPollsEveryTargetIndependently(t *testing.T) {
 	}
 
 	var probeCount atomic.Int32
-	probeFn := func(string, string, int, time.Duration, probe.IPFamily) error {
+	probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily) error {
 		probeCount.Add(1)
 		return nil
 	}

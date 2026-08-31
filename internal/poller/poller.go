@@ -16,7 +16,7 @@ import (
 )
 
 // Prober matches probe.Check's signature so tests can substitute a fake.
-type Prober func(protocol, host string, port int, timeout time.Duration, family probe.IPFamily) error
+type Prober func(ctx context.Context, protocol, host string, port int, timeout time.Duration, family probe.IPFamily) error
 
 // Pinger matches httpPing's signature so tests can substitute a fake.
 type Pinger func(ctx context.Context, pingURL string, timeout time.Duration, report PingReport) error
@@ -106,7 +106,7 @@ func pollTarget(ctx context.Context, t config.Target, logger *slog.Logger, info 
 // model gives the correct "no poller anywhere succeeded" semantics instead.
 func probeOnce(ctx context.Context, t config.Target, logger *slog.Logger, info Info, family probe.IPFamily, probeFn Prober, pingFn Pinger) {
 	start := time.Now()
-	if err := probeFn(t.Protocol, t.Host, t.Port, t.Timeout, family); err != nil {
+	if err := probeFn(ctx, t.Protocol, t.Host, t.Port, t.Timeout, family); err != nil {
 		logger.Debug("probe failed, not reporting", "target", t.Name, "ip_family", family, "error", err)
 		return
 	}

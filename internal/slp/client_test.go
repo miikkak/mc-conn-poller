@@ -3,6 +3,7 @@ package slp
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"net"
 	"strconv"
 	"testing"
@@ -63,7 +64,7 @@ func validStatusResponse(json string) []byte {
 func TestStatus_ValidResponse(t *testing.T) {
 	host, port := fakeServer(t, validStatusResponse(`{"version":{"name":"1.21"}}`))
 
-	if err := Status(host, port, time.Second, "tcp"); err != nil {
+	if err := Status(context.Background(), host, port, time.Second, "tcp"); err != nil {
 		t.Fatalf("Status() = %v, want nil", err)
 	}
 }
@@ -71,7 +72,7 @@ func TestStatus_ValidResponse(t *testing.T) {
 func TestQuery_ValidResponse(t *testing.T) {
 	host, port := fakeServer(t, validStatusResponse(`{"players":{"online":3,"max":20}}`))
 
-	payload, err := Query(host, port, time.Second, "tcp")
+	payload, err := Query(context.Background(), host, port, time.Second, "tcp")
 	if err != nil {
 		t.Fatalf("Query() = %v, want nil", err)
 	}
@@ -90,7 +91,7 @@ func TestQuery_ValidResponse(t *testing.T) {
 func TestQuery_MalformedJSON(t *testing.T) {
 	host, port := fakeServer(t, validStatusResponse(`not json`))
 
-	if _, err := Query(host, port, time.Second, "tcp"); err == nil {
+	if _, err := Query(context.Background(), host, port, time.Second, "tcp"); err == nil {
 		t.Fatal("Query() = nil, want error for malformed JSON")
 	}
 }
@@ -98,7 +99,7 @@ func TestQuery_MalformedJSON(t *testing.T) {
 func TestStatus_MalformedJSON(t *testing.T) {
 	host, port := fakeServer(t, validStatusResponse(`not json`))
 
-	if err := Status(host, port, time.Second, "tcp"); err == nil {
+	if err := Status(context.Background(), host, port, time.Second, "tcp"); err == nil {
 		t.Fatal("Status() = nil, want error for malformed JSON")
 	}
 }
@@ -111,7 +112,7 @@ func TestStatus_WrongPacketID(t *testing.T) {
 
 	host, port := fakeServer(t, full)
 
-	if err := Status(host, port, time.Second, "tcp"); err == nil {
+	if err := Status(context.Background(), host, port, time.Second, "tcp"); err == nil {
 		t.Fatal("Status() = nil, want error for wrong packet id")
 	}
 }
@@ -124,7 +125,7 @@ func TestStatus_OversizedJSONLength(t *testing.T) {
 
 	host, port := fakeServer(t, full)
 
-	if err := Status(host, port, time.Second, "tcp"); err == nil {
+	if err := Status(context.Background(), host, port, time.Second, "tcp"); err == nil {
 		t.Fatal("Status() = nil, want error for oversized json length")
 	}
 }
@@ -138,7 +139,7 @@ func TestStatus_ConnectionRefused(t *testing.T) {
 	port, _ := strconv.Atoi(portStr)
 	_ = ln.Close() // free the port immediately so nothing listens on it
 
-	if err := Status(host, port, 500*time.Millisecond, "tcp"); err == nil {
+	if err := Status(context.Background(), host, port, 500*time.Millisecond, "tcp"); err == nil {
 		t.Fatal("Status() = nil, want error for closed port")
 	}
 }
