@@ -126,7 +126,7 @@ func initConfig() {
 func newLogger(level string, useSyslog bool) (*slog.Logger, error) {
 	var lvl slog.Level
 	if err := lvl.UnmarshalText([]byte(level)); err != nil {
-		lvl = slog.LevelInfo
+		return nil, fmt.Errorf("invalid log level %q: %w", level, err)
 	}
 
 	if useSyslog {

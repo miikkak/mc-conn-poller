@@ -52,6 +52,11 @@ func Query(ctx context.Context, host string, port int, timeout time.Duration, ne
 	if err := conn.SetDeadline(deadline); err != nil {
 		return nil, fmt.Errorf("set deadline: %w", err)
 	}
+	// Reads/writes below only watch the deadline above, not ctx directly;
+	// closing the conn on cancellation makes them return immediately
+	// instead of blocking up to timeout during shutdown.
+	stopOnCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopOnCancel()
 
 	if err := writeHandshake(conn, host, port); err != nil {
 		return nil, fmt.Errorf("write handshake: %w", err)
@@ -170,6 +175,9 @@ func readVarInt(r byteReader) (int32, error) {
 		b, err := r.ReadByte()
 		if err != nil {
 			return 0, err
+		}
+		if shift == 28 && b&0xF0 != 0 {
+			return 0, fmt.Errorf("varint overflows int32")
 		}
 		result |= int32(b&0x7F) << shift
 		if b&0x80 == 0 {
