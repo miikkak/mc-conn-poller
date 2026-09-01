@@ -112,11 +112,10 @@ func toGroupedAttrs(group string, attrs []slog.Attr) []groupedAttr {
 }
 
 func (h *syslogHandler) WithGroup(name string) slog.Handler {
-	nh := *h
-	if nh.group != "" {
-		nh.group = nh.group + "." + name
-	} else {
-		nh.group = name
+	if name == "" { // matches slog.Logger.WithGroup's own no-op contract
+		return h
 	}
+	nh := *h
+	nh.group = joinKey(nh.group, name)
 	return &nh
 }
