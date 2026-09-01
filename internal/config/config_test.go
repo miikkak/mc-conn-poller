@@ -87,6 +87,8 @@ func TestValidateTarget(t *testing.T) {
 		{"non-positive timeout", func(tt *Target) { tt.Timeout = 0 }},
 		{"empty ping_url", func(tt *Target) { tt.PingURL = "" }},
 		{"relative ping_url", func(tt *Target) { tt.PingURL = "/not-absolute" }},
+		{"non-http(s) ping_url", func(tt *Target) { tt.PingURL = "ftp://hc-ping.com/00000000-0000-0000-0000-000000000000" }},
+		{"timeout not less than interval", func(tt *Target) { tt.Timeout = tt.Interval }},
 	}
 
 	for _, tc := range tests {

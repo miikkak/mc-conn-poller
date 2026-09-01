@@ -5,6 +5,7 @@ package poller
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -149,7 +150,10 @@ func httpPing(ctx context.Context, pingURL string, timeout time.Duration, report
 	if err != nil {
 		return fmt.Errorf("send ping: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body) // drain so the connection can be reused
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("ping returned status %d", resp.StatusCode)

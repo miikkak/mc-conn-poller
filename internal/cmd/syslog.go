@@ -16,8 +16,16 @@ import (
 type syslogHandler struct {
 	writer *syslog.Writer
 	level  slog.Leveler
-	attrs  []slog.Attr
+	attrs  []groupedAttr
 	group  string
+}
+
+// groupedAttr pairs an attr attached via With with the group it was under
+// at the time, since a later Handle needs that prefix even though the
+// record's own group may have changed since.
+type groupedAttr struct {
+	group string
+	attr  slog.Attr
 }
 
 // newSyslogHandler dials the local syslog daemon under the given tag. The
@@ -40,8 +48,8 @@ func (h *syslogHandler) Handle(_ context.Context, r slog.Record) error {
 	var buf strings.Builder
 	buf.WriteString(r.Message)
 
-	for _, a := range h.attrs {
-		h.writeAttr(&buf, "", a)
+	for _, ga := range h.attrs {
+		h.writeAttr(&buf, ga.group, ga.attr)
 	}
 	r.Attrs(func(a slog.Attr) bool {
 		h.writeAttr(&buf, h.group, a)
@@ -65,17 +73,36 @@ func (h *syslogHandler) writeAttr(buf *strings.Builder, group string, a slog.Att
 	if a.Equal(slog.Attr{}) {
 		return
 	}
+	value := a.Value.Resolve()
+	if value.Kind() == slog.KindGroup {
+		subGroup := a.Key
+		if group != "" {
+			subGroup = group + "." + subGroup
+		}
+		for _, ga := range value.Group() {
+			h.writeAttr(buf, subGroup, ga)
+		}
+		return
+	}
 	key := a.Key
 	if group != "" {
 		key = group + "." + key
 	}
-	fmt.Fprintf(buf, " %s=%v", key, a.Value)
+	fmt.Fprintf(buf, " %s=%v", key, value)
 }
 
 func (h *syslogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	nh := *h
-	nh.attrs = append(append([]slog.Attr{}, h.attrs...), attrs...)
+	nh.attrs = append(append([]groupedAttr{}, h.attrs...), toGroupedAttrs(h.group, attrs)...)
 	return &nh
+}
+
+func toGroupedAttrs(group string, attrs []slog.Attr) []groupedAttr {
+	ga := make([]groupedAttr, len(attrs))
+	for i, a := range attrs {
+		ga[i] = groupedAttr{group: group, attr: a}
+	}
+	return ga
 }
 
 func (h *syslogHandler) WithGroup(name string) slog.Handler {
