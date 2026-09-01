@@ -5,8 +5,10 @@ A lightweight daemon that probes the Minecraft proxy at the protocol level
 vantage point and reports success to a shared
 [Healthchecks.io](https://healthchecks.io) check.
 
-Runs directly on kilo, mike, november, and papa — not on redstone, since
-that's the Minecraft host being monitored. [minecraft-network-watchd](https://github.com/miikkak/minecraft-network-watchd)
+Runs directly on the other hosts in the fleet — not on the Minecraft host
+itself, since that's the target being monitored, and a poller running
+alongside its own target can't detect a fully down target from an external
+vantage point. [minecraft-network-watchd](https://github.com/miikkak/minecraft-network-watchd)
 polls the resulting Healthchecks.io check status and folds it into its
 broader health picture; this daemon never talks to watchd directly.
 
@@ -22,6 +24,15 @@ The Java SLP protocol client is duplicated from
 [mc-healthcheck](https://github.com/miikkak/mc-healthcheck)'s
 `internal/slp` rather than imported as a shared module — see the doc
 comment on `internal/slp/client.go` for why.
+
+## About this project
+
+This was built with heavy Claude Code assistance — most of the implementation
+is AI-generated, with the design and review driven by me. It has unit test
+coverage across its poller, SLP client, and config-loading logic (see
+`internal/*/*_test.go`) and runs continuously across my own production
+Minecraft hosts, so it sees real day-to-day use, not just its own test
+suite. Read the source and file issues if something looks off.
 
 ## Configuration
 
