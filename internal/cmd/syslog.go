@@ -75,20 +75,26 @@ func (h *syslogHandler) writeAttr(buf *strings.Builder, group string, a slog.Att
 	}
 	value := a.Value.Resolve()
 	if value.Kind() == slog.KindGroup {
-		subGroup := a.Key
-		if group != "" {
-			subGroup = group + "." + subGroup
-		}
+		// An empty-keyed group inlines its attrs under the current group
+		// rather than nesting, matching slog's own WithGroup("") contract.
+		subGroup := joinKey(group, a.Key)
 		for _, ga := range value.Group() {
 			h.writeAttr(buf, subGroup, ga)
 		}
 		return
 	}
-	key := a.Key
-	if group != "" {
-		key = group + "." + key
+	fmt.Fprintf(buf, " %s=%v", joinKey(group, a.Key), value)
+}
+
+func joinKey(group, key string) string {
+	switch {
+	case group == "":
+		return key
+	case key == "":
+		return group
+	default:
+		return group + "." + key
 	}
-	fmt.Fprintf(buf, " %s=%v", key, value)
 }
 
 func (h *syslogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
