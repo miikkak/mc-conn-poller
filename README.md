@@ -34,6 +34,16 @@ coverage across its poller, SLP client, and config-loading logic (see
 Minecraft hosts, so it sees real day-to-day use, not just its own test
 suite. Read the source and file issues if something looks off.
 
+## Platform support
+
+Built and tested for Gentoo Linux with OpenRC (see the OpenRC section
+below). Other Linux distributions likely work — the daemon itself has no
+Gentoo- or OpenRC-specific dependencies — but aren't part of this project's
+support surface: service supervision, paths, and packaging assume OpenRC,
+not systemd. Windows is unsupported for a build reason on top of that: its
+`log/syslog` logging backend doesn't compile there (nor on Plan 9), independent
+of the OpenRC-support policy above.
+
 ## Configuration
 
 Settings load from (highest precedence first): CLI flags, `MCCP_`-prefixed

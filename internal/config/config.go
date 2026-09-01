@@ -124,11 +124,14 @@ func (t Target) validate() error {
 	if t.Timeout <= 0 {
 		return fmt.Errorf("timeout must be positive")
 	}
+	if t.Timeout >= t.Interval {
+		return fmt.Errorf("timeout (%s) must be less than interval (%s)", t.Timeout, t.Interval)
+	}
 	if t.PingURL == "" {
 		return fmt.Errorf("ping_url must not be empty")
 	}
-	if u, err := url.ParseRequestURI(t.PingURL); err != nil || u.Scheme == "" || u.Host == "" {
-		return fmt.Errorf("ping_url must be an absolute URL, got %q", t.PingURL)
+	if u, err := url.ParseRequestURI(t.PingURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("ping_url must be an absolute http(s) URL, got %q", t.PingURL)
 	}
 	return nil
 }

@@ -158,3 +158,12 @@ func TestVarIntRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestReadVarIntRejectsInt32Overflow(t *testing.T) {
+	// 5 bytes, continuation set on the first 4; the 5th byte's upper nibble
+	// (0xF0) is non-zero, which can't happen for a value that fits in int32.
+	encoded := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0x1F}
+	if _, err := readVarInt(bufio.NewReader(bytes.NewReader(encoded))); err == nil {
+		t.Fatal("readVarInt() = nil error, want error for overflowing varint")
+	}
+}
