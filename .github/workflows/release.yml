@@ -71,6 +71,7 @@ jobs:
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" \
               go build \
+                -trimpath \
                 -ldflags="-s -w -X main.version=${RELEASE_TAG}" \
                 -o "mc-conn-poller-linux-${arch}" \
                 ./cmd/mc-conn-poller/
@@ -84,7 +85,9 @@ jobs:
             cp "mc-conn-poller-linux-${arch}" mc-conn-poller
             tar czf "mc-conn-poller_${RELEASE_TAG}_linux_${arch}.tar.gz" \
               mc-conn-poller \
-              README.md
+              README.md \
+              LICENSE \
+              etc/mc-conn-poller.yaml.example
             rm mc-conn-poller
           done
 
