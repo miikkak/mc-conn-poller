@@ -82,51 +82,64 @@ func TestProbeOnceReportsFamilyAndLatency(t *testing.T) {
 	}
 }
 
-func TestPollTargetProbesImmediatelyThenOnInterval(t *testing.T) {
-	target := config.Target{Name: "t", PingURL: "https://example.invalid/ping", Interval: 10 * time.Millisecond}
+// pollDeadline is a safety net only: the polling tests below wait for probe
+// events rather than asserting on how many fit in a wall-clock window, so
+// scheduling jitter on a loaded runner can slow them but not fail them. A
+// test only hits this deadline if the poller genuinely stops probing.
+const pollDeadline = 10 * time.Second
 
-	var probeCount atomic.Int32
-	probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily) error {
-		probeCount.Add(1)
-		return nil
-	}
-	pingFn := func(context.Context, string, time.Duration, PingReport) error { return nil }
+// pollUntil runs pollTarget on target until n probes have happened, then
+// cancels it and returns the IP family of each of the first n probes.
+func pollUntil(t *testing.T, target config.Target, n int) []probe.IPFamily {
+	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), pollDeadline)
 	defer cancel()
-
-	pollTarget(ctx, target, discardLogger(), testInfo, probeFn, pingFn)
-
-	// One immediate probe at startup, plus at least two more from the
-	// ticker in the ~35ms window before ctx is canceled.
-	if got := probeCount.Load(); got < 3 {
-		t.Errorf("probeCount = %d, want at least 3", got)
-	}
-}
-
-func TestPollTargetAlternatesIPFamilyAcrossRounds(t *testing.T) {
-	target := config.Target{Name: "t", PingURL: "https://example.invalid/ping", Interval: 5 * time.Millisecond}
 
 	var mu sync.Mutex
 	var families []probe.IPFamily
 	probeFn := func(_ context.Context, _ string, _ string, _ int, _ time.Duration, family probe.IPFamily) error {
 		mu.Lock()
+		defer mu.Unlock()
 		families = append(families, family)
-		mu.Unlock()
+		if len(families) == n {
+			cancel()
+		}
 		return nil
 	}
 	pingFn := func(context.Context, string, time.Duration, PingReport) error { return nil }
-
-	ctx, cancel := context.WithTimeout(context.Background(), 27*time.Millisecond)
-	defer cancel()
 
 	pollTarget(ctx, target, discardLogger(), testInfo, probeFn, pingFn)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(families) < 4 {
-		t.Fatalf("got %d probes, want at least 4 to observe alternation", len(families))
+	if len(families) < n {
+		t.Fatalf("got %d probes before the %s deadline, want %d", len(families), pollDeadline, n)
 	}
+	// A tick can race the cancellation and add a probe past n; ignore it.
+	return families[:n]
+}
+
+func TestPollTargetProbesImmediatelyThenOnInterval(t *testing.T) {
+	t.Run("probes immediately at startup", func(t *testing.T) {
+		// An hour-long interval means the only probe that can happen is the
+		// immediate one; pollUntil would hit its deadline otherwise.
+		target := config.Target{Name: "t", PingURL: "https://example.invalid/ping", Interval: time.Hour}
+		pollUntil(t, target, 1)
+	})
+
+	t.Run("keeps probing on the interval", func(t *testing.T) {
+		// The immediate probe plus two ticker-driven ones.
+		target := config.Target{Name: "t", PingURL: "https://example.invalid/ping", Interval: time.Millisecond}
+		pollUntil(t, target, 3)
+	})
+}
+
+func TestPollTargetAlternatesIPFamilyAcrossRounds(t *testing.T) {
+	target := config.Target{Name: "t", PingURL: "https://example.invalid/ping", Interval: time.Millisecond}
+
+	families := pollUntil(t, target, 6)
+
 	for i, f := range families {
 		want := probe.IPv4
 		if i%2 == 1 {
@@ -161,28 +174,10 @@ func TestFamilySelector(t *testing.T) {
 }
 
 func TestPollTargetPinsConfiguredIPFamily(t *testing.T) {
-	target := config.Target{Name: "t", PingURL: "https://example.invalid/ping", Interval: 5 * time.Millisecond, IPFamily: config.IPFamilyIPv6}
+	target := config.Target{Name: "t", PingURL: "https://example.invalid/ping", Interval: time.Millisecond, IPFamily: config.IPFamilyIPv6}
 
-	var mu sync.Mutex
-	var families []probe.IPFamily
-	probeFn := func(_ context.Context, _ string, _ string, _ int, _ time.Duration, family probe.IPFamily) error {
-		mu.Lock()
-		families = append(families, family)
-		mu.Unlock()
-		return nil
-	}
-	pingFn := func(context.Context, string, time.Duration, PingReport) error { return nil }
+	families := pollUntil(t, target, 4)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 27*time.Millisecond)
-	defer cancel()
-
-	pollTarget(ctx, target, discardLogger(), testInfo, probeFn, pingFn)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(families) < 3 {
-		t.Fatalf("got %d probes, want at least 3", len(families))
-	}
 	for i, f := range families {
 		if f != probe.IPv6 {
 			t.Errorf("families[%d] = %q, want %q (families = %v)", i, f, probe.IPv6, families)
@@ -191,31 +186,42 @@ func TestPollTargetPinsConfiguredIPFamily(t *testing.T) {
 }
 
 func TestRunPollsEveryTargetIndependently(t *testing.T) {
-	// Hour-long intervals mean each target's only probe within the test
-	// window is the immediate startup one — so the count below is exactly
-	// "one goroutine ran per target", not an artifact of ticker timing.
+	// Hour-long intervals mean each target's only probe is the immediate
+	// startup one, so "each host probed exactly once" is exactly "one
+	// goroutine ran per target". Targets are told apart by host, which the
+	// prober receives.
 	cfg := config.Config{
 		Targets: []config.Target{
-			{Name: "a", PingURL: "https://example.invalid/a", Interval: time.Hour},
-			{Name: "b", PingURL: "https://example.invalid/b", Interval: time.Hour},
+			{Name: "a", Host: "a.invalid", PingURL: "https://example.invalid/a", Interval: time.Hour},
+			{Name: "b", Host: "b.invalid", PingURL: "https://example.invalid/b", Interval: time.Hour},
 		},
 	}
 
-	var probeCount atomic.Int32
-	probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily) error {
-		probeCount.Add(1)
+	ctx, cancel := context.WithTimeout(context.Background(), pollDeadline)
+	defer cancel()
+
+	var mu sync.Mutex
+	probed := map[string]int{}
+	probeFn := func(_ context.Context, _ string, host string, _ int, _ time.Duration, _ probe.IPFamily) error {
+		mu.Lock()
+		defer mu.Unlock()
+		probed[host]++
+		if len(probed) == len(cfg.Targets) {
+			cancel() // every target has probed; stop the run
+		}
 		return nil
 	}
 	pingFn := func(context.Context, string, time.Duration, PingReport) error { return nil }
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
 
 	if err := run(ctx, cfg, discardLogger(), testInfo, probeFn, pingFn); err != nil {
 		t.Fatalf("run() = %v, want nil", err)
 	}
 
-	if got := probeCount.Load(); got != 2 {
-		t.Errorf("probeCount = %d, want 2 (one per target)", got)
+	mu.Lock()
+	defer mu.Unlock()
+	for _, host := range []string{"a.invalid", "b.invalid"} {
+		if probed[host] != 1 {
+			t.Errorf("probes of %s = %d, want 1 (probed = %v)", host, probed[host], probed)
+		}
 	}
 }
