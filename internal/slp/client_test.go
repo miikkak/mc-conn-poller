@@ -61,6 +61,96 @@ func validStatusResponse(json string) []byte {
 	return full
 }
 
+// stallingServer accepts a single connection, reads the handshake + status
+// request, writes partial verbatim, closes sent, and then stalls without
+// sending or closing anything until the test ends. A client reading its
+// response is therefore blocked until it gives up or is canceled.
+func stallingServer(t *testing.T, partial []byte) (host string, port int, sent <-chan struct{}) {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	done := make(chan struct{})
+	t.Cleanup(func() {
+		close(done)
+		_ = ln.Close()
+	})
+
+	sentCh := make(chan struct{})
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+
+		r := bufio.NewReader(conn)
+		if _, err := readPacket(r); err != nil { // handshake
+			return
+		}
+		if _, err := readPacket(r); err != nil { // status request
+			return
+		}
+		_, _ = conn.Write(partial)
+		close(sentCh)
+		<-done
+	}()
+
+	host, portStr, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatalf("split host port: %v", err)
+	}
+	port, err = strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("parse port: %v", err)
+	}
+	return host, port, sentCh
+}
+
+func TestQuery_CancellationUnblocksReadPromptly(t *testing.T) {
+	full := validStatusResponse(`{"version":{"name":"x","protocol":1}}`)
+
+	tests := []struct {
+		name    string
+		partial []byte
+	}{
+		{"before any response byte", nil},
+		{"partway through the response", full[:len(full)-3]},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			host, port, sent := stallingServer(t, tc.partial)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			// Cancel only once the server has sent everything it will send,
+			// so the client is (or is about to be) blocked reading the rest.
+			go func() {
+				<-sent
+				cancel()
+			}()
+
+			const timeout = 10 * time.Second
+			start := time.Now()
+			_, err := Query(ctx, host, port, timeout, "tcp")
+			elapsed := time.Since(start)
+
+			if err == nil {
+				t.Fatal("Query() = nil error, want an error for a canceled query")
+			}
+			// Without the cancellation hook the read would wait out the full
+			// timeout; returning in under half of it is a wide margin over
+			// the milliseconds it actually takes.
+			if elapsed > timeout/2 {
+				t.Errorf("Query() took %s after cancellation, want it to return promptly (timeout %s)", elapsed, timeout)
+			}
+		})
+	}
+}
+
 func TestStatus_ValidResponse(t *testing.T) {
 	host, port := fakeServer(t, validStatusResponse(`{"version":{"name":"1.21"}}`))
 
