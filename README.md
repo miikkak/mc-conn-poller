@@ -8,9 +8,9 @@ vantage point and reports success to a shared
 Runs directly on the other hosts in the fleet — not on the Minecraft host
 itself, since that's the target being monitored, and a poller running
 alongside its own target can't detect a fully down target from an external
-vantage point. [minecraft-network-watchd](https://github.com/miikkak/minecraft-network-watchd)
-polls the resulting Healthchecks.io check status and folds it into its
-broader health picture; this daemon never talks to watchd directly.
+vantage point. A separate (private) aggregator daemon polls the resulting
+Healthchecks.io check status and folds it into a broader health picture;
+this daemon never talks to it directly.
 
 On a successful handshake, the target's Healthchecks.io check is pinged. On
 failure, nothing is sent — no `/fail` call. The check is shared across
@@ -77,13 +77,10 @@ receives `SIGINT`/`SIGTERM`.
 
 ### OpenRC
 
-The `init.d`/`conf.d` service definitions live in
-[miikkak/scripts](https://github.com/miikkak/scripts) (`init.d/mc-conn-poller`,
-`conf.d/mc-conn-poller`), not in this repo — same as `ripe-atlas` and
-`globalping-probe`, the other multi-host network probes in this fleet.
-`scripts`' own release pipeline pushes `init.d/*` to `/etc/init.d`
-automatically; `conf.d/*` is deployed via server-config Ansible. This repo
-only builds and installs the binary:
+The `init.d`/`conf.d` service definitions live in a separate private
+repository, not in this repo, and are deployed by my own tooling. This repo
+only builds and installs the binary; write your own `openrc-run` script that
+runs it with `--config`:
 
 ```shell
 make install    # binary -> /usr/local/sbin
