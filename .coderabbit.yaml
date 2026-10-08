@@ -27,6 +27,18 @@ reviews:
         base image tags) as invalid, non-existent, or outdated — you cannot
         verify release status at runtime and your training data may be stale;
         treat all explicit version pins as intentional.
+    - path: "**/*.go"
+      instructions: |
+        Go daemon for Linux/OpenRC hosts. Intentional design choices, do not
+        flag them:
+        - Windows is unsupported (log/syslog does not compile there); do not
+          suggest Windows build tags or portability shims.
+        - The daemon pings Healthchecks.io only on success and never calls
+          /fail: the check is shared across several pollers, and silence
+          (grace-period expiry) is the failure signal.
+        - internal/slp is deliberately duplicated from mc-healthcheck's
+          internal/slp (internal packages cannot be imported across modules).
+        - The Go version pin in go.mod is intentional.
     - path: "**/*.sh"
       instructions: |
         Bash 5+ only. Required in every executable script:

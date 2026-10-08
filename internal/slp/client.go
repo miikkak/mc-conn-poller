@@ -3,12 +3,10 @@
 // is alive and returning well-formed status JSON.
 //
 // Duplicated from github.com/miikkak/mc-healthcheck's internal/slp rather
-// than imported: mc-healthcheck is a private repo, and GitHub Actions'
-// default GITHUB_TOKEN can't fetch a different private repo's module during
-// this repo's CI, so a real cross-repo dependency would need a PAT threaded
-// through every workflow that builds Go code. The protocol is stable enough
-// that keeping two copies in sync is the cheaper tradeoff. Apply any fix
-// made here to the other copy too, and vice versa.
+// than imported: that package is under internal/, so it cannot be imported
+// from another module, and the protocol is stable enough that keeping two
+// copies in sync is the cheaper tradeoff than extracting a shared module.
+// Apply any fix made here to the other copy too, and vice versa.
 package slp
 
 import (
