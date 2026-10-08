@@ -70,5 +70,35 @@ type familyDialer struct {
 }
 
 func (d familyDialer) DialContext(ctx context.Context, _, address string) (net.Conn, error) {
-	return (&net.Dialer{}).DialContext(ctx, d.network, address)
+	conn, err := (&net.Dialer{}).DialContext(ctx, d.network, address)
+	if err != nil {
+		return nil, err
+	}
+	return closeOnCancel(ctx, conn), nil
+}
+
+// cancelConn closes its connection when ctx is canceled. go-raknet applies
+// only ctx's deadline to the socket and never watches ctx.Done(), so without
+// this a blocked read would hold up shutdown for the full probe timeout
+// (the Java path does the same with context.AfterFunc in slp.Query).
+// Deadline expiry is deliberately left to the socket deadline, so timeouts
+// keep reporting as i/o timeouts rather than as a closed connection.
+type cancelConn struct {
+	net.Conn
+	stop func() bool
+}
+
+func closeOnCancel(ctx context.Context, conn net.Conn) net.Conn {
+	c := &cancelConn{Conn: conn}
+	c.stop = context.AfterFunc(ctx, func() {
+		if ctx.Err() == context.Canceled {
+			_ = conn.Close()
+		}
+	})
+	return c
+}
+
+func (c *cancelConn) Close() error {
+	c.stop()
+	return c.Conn.Close()
 }
