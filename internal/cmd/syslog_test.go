@@ -75,3 +75,29 @@ func TestWithAttrsCapturesGroupActiveAtAttachTime(t *testing.T) {
 		t.Errorf("attrs rendered = %q, want %q", got, want)
 	}
 }
+
+func TestWriteAttrQuotesAmbiguousValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"plain", "abc", " k=abc"},
+		{"empty", "", ` k=""`},
+		{"space", "no such host", ` k="no such host"`},
+		{"equals", "a=b", ` k="a=b"`},
+		{"quote", `say "hi"`, ` k="say \"hi\""`},
+		{"newline", "a\nb", ` k="a\nb"`},
+		{"non-ASCII printable", "häst", " k=häst"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &syslogHandler{}
+			var buf strings.Builder
+			h.writeAttr(&buf, "", slog.String("k", tc.value))
+			if got := buf.String(); got != tc.want {
+				t.Errorf("writeAttr() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
