@@ -105,7 +105,7 @@ func Query(ctx context.Context, host string, port int, timeout time.Duration, ne
 func writeHandshake(w io.Writer, host string, port int) error {
 	var packet bytes.Buffer
 	packet.Write(varInt(0x00)) // packet ID
-	packet.Write(varInt(776))  // protocol version (Java Edition 26.2); unvalidated by the server for a status ping
+	packet.Write(varInt(777))  // protocol version (Java Edition 26.3); unvalidated by the server for a status ping
 	packet.Write(packString(host))
 
 	portBytes := make([]byte, 2)
