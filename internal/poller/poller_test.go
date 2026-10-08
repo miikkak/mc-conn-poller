@@ -138,6 +138,58 @@ func TestPollTargetAlternatesIPFamilyAcrossRounds(t *testing.T) {
 	}
 }
 
+func TestFamilySelector(t *testing.T) {
+	tests := []struct {
+		mode string
+		want []probe.IPFamily
+	}{
+		{config.IPFamilyIPv4, []probe.IPFamily{probe.IPv4, probe.IPv4, probe.IPv4}},
+		{config.IPFamilyIPv6, []probe.IPFamily{probe.IPv6, probe.IPv6, probe.IPv6}},
+		{config.IPFamilyAlternate, []probe.IPFamily{probe.IPv4, probe.IPv6, probe.IPv4, probe.IPv6}},
+		{"", []probe.IPFamily{probe.IPv4, probe.IPv6, probe.IPv4, probe.IPv6}},
+	}
+	for _, tc := range tests {
+		t.Run("ip_family="+tc.mode, func(t *testing.T) {
+			next := familySelector(tc.mode)
+			for i, want := range tc.want {
+				if got := next(); got != want {
+					t.Errorf("round %d = %q, want %q", i, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestPollTargetPinsConfiguredIPFamily(t *testing.T) {
+	target := config.Target{Name: "t", PingURL: "https://example.invalid/ping", Interval: 5 * time.Millisecond, IPFamily: config.IPFamilyIPv6}
+
+	var mu sync.Mutex
+	var families []probe.IPFamily
+	probeFn := func(_ context.Context, _ string, _ string, _ int, _ time.Duration, family probe.IPFamily) error {
+		mu.Lock()
+		families = append(families, family)
+		mu.Unlock()
+		return nil
+	}
+	pingFn := func(context.Context, string, time.Duration, PingReport) error { return nil }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 27*time.Millisecond)
+	defer cancel()
+
+	pollTarget(ctx, target, discardLogger(), testInfo, probeFn, pingFn)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(families) < 3 {
+		t.Fatalf("got %d probes, want at least 3", len(families))
+	}
+	for i, f := range families {
+		if f != probe.IPv6 {
+			t.Errorf("families[%d] = %q, want %q (families = %v)", i, f, probe.IPv6, families)
+		}
+	}
+}
+
 func TestRunPollsEveryTargetIndependently(t *testing.T) {
 	// Hour-long intervals mean each target's only probe within the test
 	// window is the immediate startup one — so the count below is exactly

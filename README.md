@@ -65,6 +65,23 @@ targets:
     ping_url: https://hc-ping.com/00000000-0000-0000-0000-000000000000
 ```
 
+### IP family
+
+Each probe is pinned to a single IP address family, because Go's default
+dialer races IPv4 and IPv6 and reports success if either connects, which
+would hide an outage confined to one family. A target's `ip_family` chooses
+which:
+
+- `alternate` (default): IPv4 and IPv6 alternate across rounds. Each family
+  is probed (and pings) only every second round, so Healthchecks.io's period
+  and grace for that check must allow for `2 × interval`, and a single-family
+  outage is not distinguishable from a healthy target by silence alone.
+- `ipv4` / `ipv6`: every round uses that family. Use this for single-stack
+  targets or pollers (an IPv4 literal `host`, or a host without IPv6 routing,
+  otherwise fails every second round). To alert on each family independently,
+  configure one pinned target per family, each with its own Healthchecks.io
+  check; see `etc/mc-conn-poller.yaml.example`.
+
 ## Running
 
 ```shell

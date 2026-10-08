@@ -89,6 +89,7 @@ func TestValidateTarget(t *testing.T) {
 		{"empty ping_url", func(tt *Target) { tt.PingURL = "" }},
 		{"relative ping_url", func(tt *Target) { tt.PingURL = "/not-absolute" }},
 		{"non-http(s) ping_url", func(tt *Target) { tt.PingURL = "ftp://hc-ping.com/00000000-0000-0000-0000-000000000000" }},
+		{"unknown ip_family", func(tt *Target) { tt.IPFamily = "both" }},
 		{"timeout not less than interval", func(tt *Target) { tt.Timeout = tt.Interval }},
 	}
 
@@ -115,5 +116,17 @@ func TestValidateDoesNotEchoPingURL(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), secret) {
 		t.Errorf("error %q leaks the ping URL", err)
+	}
+}
+
+func TestValidateAcceptsIPFamilies(t *testing.T) {
+	for _, family := range []string{"", IPFamilyIPv4, IPFamilyIPv6, IPFamilyAlternate} {
+		t.Run("ip_family="+family, func(t *testing.T) {
+			target := validTarget()
+			target.IPFamily = family
+			if err := (Config{Targets: []Target{target}}).Validate(); err != nil {
+				t.Errorf("Validate() = %v, want nil", err)
+			}
+		})
 	}
 }
