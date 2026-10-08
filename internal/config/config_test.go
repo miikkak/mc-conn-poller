@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -100,5 +101,19 @@ func TestValidateTarget(t *testing.T) {
 				t.Errorf("Validate() = nil, want error for %s", tc.name)
 			}
 		})
+	}
+}
+
+func TestValidateDoesNotEchoPingURL(t *testing.T) {
+	const secret = "SECRET-PING-TOKEN"
+
+	target := validTarget()
+	target.PingURL = "ftp://hc-ping.com/" + secret
+	err := Config{Targets: []Target{target}}.Validate()
+	if err == nil {
+		t.Fatal("Validate() = nil, want error for non-http(s) ping_url")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("error %q leaks the ping URL", err)
 	}
 }

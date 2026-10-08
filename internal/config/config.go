@@ -131,7 +131,8 @@ func (t Target) validate() error {
 		return fmt.Errorf("ping_url must not be empty")
 	}
 	if u, err := url.ParseRequestURI(t.PingURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return fmt.Errorf("ping_url must be an absolute http(s) URL, got %q", t.PingURL)
+		// The value is deliberately not echoed: a ping URL is a bearer secret.
+		return fmt.Errorf("ping_url must be an absolute http(s) URL")
 	}
 	return nil
 }

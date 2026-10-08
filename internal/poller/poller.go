@@ -4,10 +4,12 @@ package poller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -129,6 +131,41 @@ func probeOnce(ctx context.Context, t config.Target, logger *slog.Logger, info I
 	logger.Debug("probe succeeded, reported to healthchecks.io", "target", t.Name, "ip_family", family)
 }
 
+const (
+	// maxPingRedirects bounds how many redirects a ping follows; Healthchecks.io
+	// itself never redirects, but a self-hosted instance may sit behind a
+	// http-to-https redirect.
+	maxPingRedirects = 3
+	// maxPingBodyDrain bounds how much of the response body is read (and
+	// discarded) to let the connection be reused.
+	maxPingBodyDrain = 64 * 1024
+)
+
+// pingClient is dedicated to Healthchecks.io pings, rather than the shared
+// http.DefaultClient, so a redirect limit can be applied without affecting
+// anything else in the process. Per-request timeouts come from the request
+// context.
+var pingClient = &http.Client{
+	CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+		if len(via) > maxPingRedirects {
+			return fmt.Errorf("stopped after %d redirects", maxPingRedirects)
+		}
+		return nil
+	},
+}
+
+// stripURL unwraps a *url.Error to its underlying error. A *url.Error's
+// message embeds the full request URL, and a Healthchecks.io ping URL is a
+// bearer secret (anyone holding it can mark the check as up), so it must not
+// reach logs.
+func stripURL(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return urlErr.Err
+	}
+	return err
+}
+
 // httpPing reports a successful probe to Healthchecks.io. It deliberately
 // leaves the connection's own IP family selection to the OS default (Go's
 // Happy Eyeballs) rather than pinning it the way probeFn is pinned: unlike
@@ -141,17 +178,17 @@ func httpPing(ctx context.Context, pingURL string, timeout time.Duration, report
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, pingURL, strings.NewReader(reportBody(report)))
 	if err != nil {
-		return fmt.Errorf("build ping request: %w", err)
+		return fmt.Errorf("build ping request: %w", stripURL(err))
 	}
 	req.Header.Set("User-Agent", userAgent(report.PollerInfo))
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := pingClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("send ping: %w", err)
+		return fmt.Errorf("send ping to %s: %w", req.URL.Host, stripURL(err))
 	}
 	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body) // drain so the connection can be reused
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxPingBodyDrain)) // drain so the connection can be reused
 		_ = resp.Body.Close()
 	}()
 
