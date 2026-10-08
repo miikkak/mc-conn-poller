@@ -96,6 +96,11 @@ func Query(ctx context.Context, host string, port int, timeout time.Duration, ne
 	if err := json.Unmarshal(jsonBytes, &payload); err != nil {
 		return nil, fmt.Errorf("invalid status json: %w", err)
 	}
+	// "null" unmarshals into a map without error and leaves it nil; it is
+	// not a status object, so it must not read as a healthy server.
+	if payload == nil {
+		return nil, fmt.Errorf("status json is not an object")
+	}
 
 	return payload, nil
 }

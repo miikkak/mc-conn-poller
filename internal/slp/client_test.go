@@ -194,6 +194,37 @@ func TestStatus_MalformedJSON(t *testing.T) {
 	}
 }
 
+func TestQuery_RejectsNonObjectStatusJSON(t *testing.T) {
+	// A status response must be a JSON object. "null" is the sharp one:
+	// json.Unmarshal accepts it into a map and leaves the map nil, so
+	// without an explicit check it would read as a healthy server.
+	for _, body := range []string{`null`, `[]`, `"ok"`, `42`, `true`} {
+		t.Run(body, func(t *testing.T) {
+			host, port := fakeServer(t, validStatusResponse(body))
+
+			if _, err := Query(context.Background(), host, port, time.Second, "tcp"); err == nil {
+				t.Errorf("Query() = nil error, want error for status body %s", body)
+			}
+			host, port = fakeServer(t, validStatusResponse(body))
+			if err := Status(context.Background(), host, port, time.Second, "tcp"); err == nil {
+				t.Errorf("Status() = nil, want error for status body %s", body)
+			}
+		})
+	}
+}
+
+func TestQuery_AcceptsEmptyStatusObject(t *testing.T) {
+	host, port := fakeServer(t, validStatusResponse(`{}`))
+
+	payload, err := Query(context.Background(), host, port, time.Second, "tcp")
+	if err != nil {
+		t.Fatalf("Query() = %v, want nil for an empty object", err)
+	}
+	if payload == nil {
+		t.Error("Query() payload = nil, want a non-nil empty map")
+	}
+}
+
 func TestStatus_WrongPacketID(t *testing.T) {
 	packet := append(varInt(0x01), packString(`{}`)...)
 	var full []byte
