@@ -103,11 +103,14 @@ var configReadErr error
 
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
+	// Set unconditionally: with --config, viper otherwise infers the format
+	// from the file extension and rejects anything but a known one (e.g.
+	// "mc-conn-poller.conf").
+	viper.SetConfigType("yaml")
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 	} else {
 		viper.SetConfigName("mc-conn-poller")
-		viper.SetConfigType("yaml")
 		viper.AddConfigPath("/usr/local/etc")
 		viper.AddConfigPath("/etc")
 	}

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/syslog"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"log/slog"
 )
@@ -83,7 +85,22 @@ func (h *syslogHandler) writeAttr(buf *strings.Builder, group string, a slog.Att
 		}
 		return
 	}
-	fmt.Fprintf(buf, " %s=%v", joinKey(group, a.Key), value)
+	fmt.Fprintf(buf, " %s=%s", joinKey(group, a.Key), formatValue(value.String()))
+}
+
+// formatValue quotes a value when leaving it bare would make the logfmt-style
+// line ambiguous for downstream parsers (whitespace, '=', '"', control or
+// non-printable characters, or an empty value), mirroring slog.TextHandler.
+func formatValue(s string) string {
+	if s == "" {
+		return `""`
+	}
+	for _, r := range s {
+		if unicode.IsSpace(r) || r == '=' || r == '"' || !unicode.IsPrint(r) {
+			return strconv.Quote(s)
+		}
+	}
+	return s
 }
 
 func joinKey(group, key string) string {
