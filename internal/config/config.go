@@ -44,6 +44,13 @@ type Target struct {
 	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
 
+	// IPFamily selects which IP address family probes use: "ipv4" or "ipv6"
+	// pins every round to that family, "alternate" (the default when empty)
+	// alternates IPv4/IPv6 across rounds. Pinning suits single-stack targets
+	// and pollers, and lets IPv4 and IPv6 be monitored by separate targets
+	// with separate Healthchecks.io checks.
+	IPFamily string `mapstructure:"ip_family"`
+
 	// Interval and Timeout override Config.DefaultInterval/DefaultTimeout
 	// when set.
 	Interval time.Duration `mapstructure:"interval"`
@@ -59,6 +66,13 @@ type Target struct {
 const (
 	ProtocolJava    = "java"
 	ProtocolBedrock = "bedrock"
+)
+
+// Valid Target.IPFamily values. An empty IPFamily means IPFamilyAlternate.
+const (
+	IPFamilyIPv4      = "ipv4"
+	IPFamilyIPv6      = "ipv6"
+	IPFamilyAlternate = "alternate"
 )
 
 // Defaults returns a Config populated with the daemon's default values,
@@ -114,6 +128,11 @@ func (t Target) validate() error {
 	}
 	if t.Host == "" {
 		return fmt.Errorf("host must not be empty")
+	}
+	switch t.IPFamily {
+	case "", IPFamilyIPv4, IPFamilyIPv6, IPFamilyAlternate:
+	default:
+		return fmt.Errorf("ip_family must be %q, %q or %q, got %q", IPFamilyIPv4, IPFamilyIPv6, IPFamilyAlternate, t.IPFamily)
 	}
 	if t.Port <= 0 || t.Port > 65535 {
 		return fmt.Errorf("port must be between 1 and 65535, got %d", t.Port)

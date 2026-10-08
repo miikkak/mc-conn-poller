@@ -66,18 +66,19 @@ func run(ctx context.Context, cfg config.Config, logger *slog.Logger, info Info,
 	return nil
 }
 
-// pollTarget probes immediately on startup, then on t.Interval, until ctx is
-// canceled. Each target runs on its own independent timer — per spec,
-// timers across targets/hosts do not need to be synchronized or staggered.
-//
-// Each round pins the probe to a single IP address family, alternating
-// IPv4/IPv6 across rounds: Go's default dialer races both and reports
-// success if either connects, which would hide a real outage confined to
-// one family. Alternating instead of always picking one gives ongoing
-// coverage of both without conflating them into a single result.
-func pollTarget(ctx context.Context, t config.Target, logger *slog.Logger, info Info, probeFn Prober, pingFn Pinger) {
+// familySelector returns the function that picks the IP family for each
+// round of a target, per its ip_family setting. "ipv4"/"ipv6" pin every
+// round to that family; anything else (including the default, empty) is
+// "alternate", which alternates IPv4/IPv6 across rounds.
+func familySelector(mode string) func() probe.IPFamily {
+	switch mode {
+	case config.IPFamilyIPv4:
+		return func() probe.IPFamily { return probe.IPv4 }
+	case config.IPFamilyIPv6:
+		return func() probe.IPFamily { return probe.IPv6 }
+	}
 	round := 0
-	nextFamily := func() probe.IPFamily {
+	return func() probe.IPFamily {
 		family := probe.IPv4
 		if round%2 == 1 {
 			family = probe.IPv6
@@ -85,6 +86,23 @@ func pollTarget(ctx context.Context, t config.Target, logger *slog.Logger, info 
 		round++
 		return family
 	}
+}
+
+// pollTarget probes immediately on startup, then on t.Interval, until ctx is
+// canceled. Each target runs on its own independent timer — per spec,
+// timers across targets/hosts do not need to be synchronized or staggered.
+//
+// Each round pins the probe to a single IP address family: Go's default
+// dialer races both and reports success if either connects, which would
+// hide a real outage confined to one family. By default (ip_family
+// "alternate") the family alternates IPv4/IPv6 across rounds, giving
+// ongoing coverage of both without conflating them into a single result;
+// note that this halves each family's ping rate, so a single-stack target
+// (or poller) should set ip_family to that family instead. To alert on one
+// family specifically, configure one pinned target per family, each with its
+// own Healthchecks.io check.
+func pollTarget(ctx context.Context, t config.Target, logger *slog.Logger, info Info, probeFn Prober, pingFn Pinger) {
+	nextFamily := familySelector(t.IPFamily)
 
 	probeOnce(ctx, t, logger, info, nextFamily(), probeFn, pingFn)
 
