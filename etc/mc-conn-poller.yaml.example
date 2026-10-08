@@ -32,8 +32,12 @@ targets:
     port: 19132
     ping_url: https://hc-ping.com/11111111-1111-1111-1111-111111111111
 
-  # To alert on IPv4 and IPv6 independently, pin one target per family and
-  # give each its own Healthchecks.io check:
+  # To alert on IPv4 and IPv6 independently, pin every target for the same
+  # host to one family, each with its own Healthchecks.io check. Both must be
+  # pinned: an "alternate" target keeps pinging its check on successful IPv6
+  # rounds even during an IPv4 outage, which would hide that outage. So:
+  #   1. set "ip_family: ipv4" on proxy-java above, and
+  #   2. add a second target for IPv6 with its own check:
   #
   # - name: proxy-java-v6
   #   protocol: java
