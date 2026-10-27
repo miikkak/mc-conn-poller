@@ -1,7 +1,7 @@
 # mc-conn-poller
 
 A lightweight daemon that probes the Minecraft proxy at the protocol level
-(Java Server List Ping, Bedrock RakNet unconnected ping) from an external
+(Java Server List Ping, Bedrock NetherNet signaling / RakNet unconnected ping) from an external
 vantage point and reports success to a shared
 [Healthchecks.io](https://healthchecks.io) check.
 
@@ -64,6 +64,23 @@ targets:
     port: 25565
     ping_url: https://hc-ping.com/00000000-0000-0000-0000-000000000000
 ```
+
+### Bedrock transport
+
+Bedrock clients from 26.60 on speak only NetherNet (WebRTC), and Geyser can
+drop RakNet. A `bedrock` target therefore takes a `transport`:
+
+| `transport`      | Probe                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------- |
+| `auto` (default) | NetherNet first; on failure, RakNet. A RakNet-only success is logged as a warning.          |
+| `nethernet`      | `GET /v1/join` on the TCP signaling port; needs HTTP 200 and a JSON object with `protocol`. |
+| `raknet`         | UDP unconnected ping, as before.                                                            |
+
+The NetherNet check confirms the proxy is up and its signaling is reachable;
+it does not exercise the UDP gameplay leg (that needs a full WebRTC
+handshake). `signaling_scheme` (`https` by default, or `http`) selects the
+scheme for the signaling request. With `ip_family` pinned, the TCP request
+is pinned to that family too.
 
 ### IP family
 

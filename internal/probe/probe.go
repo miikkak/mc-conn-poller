@@ -4,7 +4,9 @@ package probe
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"strconv"
 	"time"
@@ -26,21 +28,75 @@ const (
 	IPv6 IPFamily = "6"
 )
 
+// Bedrock transports. "auto" tries NetherNet first and falls back to RakNet.
+const (
+	TransportAuto      = "auto"
+	TransportNetherNet = "nethernet"
+	TransportRakNet    = "raknet"
+)
+
+// Options tunes the Bedrock probe; the zero value means TransportAuto with
+// HTTPS signaling. It has no effect on "java" probes.
+type Options struct {
+	// Transport is TransportAuto (default when empty), TransportNetherNet or
+	// TransportRakNet.
+	Transport string
+	// SignalingScheme is "https" (default when empty) or "http", for the
+	// NetherNet signaling endpoint.
+	SignalingScheme string
+	// Logger, if set, reports a successful RakNet fallback in auto mode so
+	// it doesn't quietly mask a broken NetherNet path.
+	Logger *slog.Logger
+}
+
 // Check performs a protocol-level handshake against host:port over the
 // given IP family and returns nil only when a genuine protocol response
 // comes back within timeout. For "java", slp.Status still requires a
 // well-formed status packet (correct packet ID, valid JSON) — a server
 // that responds but with a broken payload is reported as unreachable, not
 // treated as connectivity success. Canceling ctx aborts an in-flight probe
-// immediately rather than waiting out timeout.
-func Check(ctx context.Context, protocol, host string, port int, timeout time.Duration, family IPFamily) error {
+// immediately rather than waiting out timeout. For "bedrock", opts selects
+// the transport (see Options).
+func Check(ctx context.Context, protocol, host string, port int, timeout time.Duration, family IPFamily, opts Options) error {
 	switch protocol {
 	case "java":
 		return slp.Status(ctx, host, port, timeout, "tcp"+string(family))
 	case "bedrock":
-		return bedrockPing(ctx, host, port, timeout, family)
+		return bedrockCheck(ctx, host, port, timeout, family, opts)
 	default:
 		return fmt.Errorf("unknown protocol %q", protocol)
+	}
+}
+
+func bedrockCheck(ctx context.Context, host string, port int, timeout time.Duration, family IPFamily, opts Options) error {
+	scheme := opts.SignalingScheme
+	if scheme == "" {
+		scheme = "https"
+	}
+
+	switch opts.Transport {
+	case TransportNetherNet:
+		return nethernetPing(ctx, host, port, timeout, family, scheme)
+	case TransportRakNet:
+		return bedrockPing(ctx, host, port, timeout, family)
+	case "", TransportAuto:
+		nnErr := nethernetPing(ctx, host, port, timeout, family, scheme)
+		if nnErr == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return nnErr
+		}
+		rnErr := bedrockPing(ctx, host, port, timeout, family)
+		if rnErr != nil {
+			return errors.Join(nnErr, rnErr)
+		}
+		if opts.Logger != nil {
+			opts.Logger.Warn("nethernet probe failed, raknet fallback succeeded", "host", host, "port", port, "error", nnErr)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown bedrock transport %q", opts.Transport)
 	}
 }
 
