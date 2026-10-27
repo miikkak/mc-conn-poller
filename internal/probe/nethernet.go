@@ -3,6 +3,7 @@ package probe
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -39,9 +40,16 @@ func nethernetPing(ctx context.Context, host string, port int, timeout time.Dura
 		},
 		DisableKeepAlives: true,
 	}
-	defer transport.CloseIdleConnections()
 
-	resp, err := (&http.Client{Transport: transport}).Do(req)
+	// Redirects are not followed: a 3xx from the configured endpoint must
+	// not let another server's 200 pass for this target.
+	client := &http.Client{
+		Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("nethernet signaling %s (tcp%s): %w", u.Host, family, err)
 	}
@@ -54,8 +62,13 @@ func nethernetPing(ctx context.Context, host string, port int, timeout time.Dura
 	var status struct {
 		Protocol *int `json:"protocol"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxSignalingResponse)).Decode(&status); err != nil {
+	dec := json.NewDecoder(io.LimitReader(resp.Body, maxSignalingResponse))
+	if err := dec.Decode(&status); err != nil {
 		return fmt.Errorf("nethernet signaling %s (tcp%s): malformed response: %w", u.Host, family, err)
+	}
+	// Exactly one JSON document: anything but trailing whitespace is malformed.
+	if err := dec.Decode(&json.RawMessage{}); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("nethernet signaling %s (tcp%s): malformed response: trailing data after JSON document", u.Host, family)
 	}
 	if status.Protocol == nil {
 		return fmt.Errorf("nethernet signaling %s (tcp%s): response has no protocol field", u.Host, family)

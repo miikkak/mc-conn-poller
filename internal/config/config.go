@@ -138,12 +138,12 @@ func (t Target) validate() error {
 	switch t.Transport {
 	case "", "auto", "nethernet", "raknet":
 	default:
-		return fmt.Errorf("transport must be \"auto\", \"nethernet\" or \"raknet\", got %q", t.Transport)
+		return fmt.Errorf("transport must be \"auto\" (default), \"nethernet\" or \"raknet\", got %q", t.Transport)
 	}
 	switch t.SignalingScheme {
 	case "", "https", "http":
 	default:
-		return fmt.Errorf("signaling_scheme must be \"https\" or \"http\", got %q", t.SignalingScheme)
+		return fmt.Errorf("signaling_scheme must be \"https\" (default) or \"http\", got %q", t.SignalingScheme)
 	}
 	if t.Host == "" {
 		return fmt.Errorf("host must not be empty")

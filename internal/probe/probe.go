@@ -56,7 +56,10 @@ type Options struct {
 // that responds but with a broken payload is reported as unreachable, not
 // treated as connectivity success. Canceling ctx aborts an in-flight probe
 // immediately rather than waiting out timeout. For "bedrock", opts selects
-// the transport (see Options).
+// the transport (see Options); in auto mode timeout applies to each attempt,
+// so a NetherNet timeout followed by a RakNet fallback can take up to twice
+// timeout. That is deliberate: a shared budget would leave the fallback no
+// time after a silently dropped NetherNet attempt.
 func Check(ctx context.Context, protocol, host string, port int, timeout time.Duration, family IPFamily, opts Options) error {
 	switch protocol {
 	case "java":

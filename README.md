@@ -76,6 +76,9 @@ drop RakNet. A `bedrock` target therefore takes a `transport`:
 | `nethernet`      | `GET /v1/join` on the TCP signaling port; needs HTTP 200 and a JSON object with `protocol`. |
 | `raknet`         | UDP unconnected ping, as before.                                                            |
 
+In `auto` mode `timeout` applies to each attempt, so one round can take up to
+twice `timeout` when NetherNet times out before the RakNet fallback runs.
+
 The NetherNet check confirms the proxy is up and its signaling is reachable;
 it does not exercise the UDP gameplay leg (that needs a full WebRTC
 handshake). `signaling_scheme` (`https` by default, or `http`) selects the

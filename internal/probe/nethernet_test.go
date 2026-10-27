@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -35,6 +36,15 @@ func TestNetherNetPing(t *testing.T) {
 		{"missing protocol", func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = w.Write([]byte(`{"version":"26.60"}`))
 		}, true},
+		{"trailing data", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"protocol":2225}not-json`))
+		}, true},
+		{"trailing whitespace", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("{\"protocol\":2225}\n"))
+		}, false},
+		{"redirect to a healthy endpoint", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/ok", http.StatusFound)
+		}, true},
 		{"html body", func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = w.Write([]byte(`<html></html>`))
 		}, true},
@@ -44,9 +54,18 @@ func TestNetherNetPing(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var gotPath string
+			var (
+				mu      sync.Mutex
+				gotPath string
+			)
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/ok" {
+					_, _ = w.Write([]byte(`{"protocol":1}`))
+					return
+				}
+				mu.Lock()
 				gotPath = r.URL.Path
+				mu.Unlock()
 				tc.handler(w, r)
 			}))
 			defer srv.Close()
@@ -57,6 +76,8 @@ func TestNetherNetPing(t *testing.T) {
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("Check() error = %v, wantErr %v", err, tc.wantErr)
 			}
+			mu.Lock()
+			defer mu.Unlock()
 			if gotPath != "/v1/join" {
 				t.Errorf("requested path %q, want /v1/join", gotPath)
 			}
