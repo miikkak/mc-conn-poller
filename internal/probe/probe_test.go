@@ -37,7 +37,7 @@ func TestBedrockPingReturnsPromptlyOnCancellation(t *testing.T) {
 
 	const timeout = 5 * time.Second
 	start := time.Now()
-	err := Check(ctx, "bedrock", host, port, timeout, IPv4)
+	err := Check(ctx, "bedrock", host, port, timeout, IPv4, Options{Transport: TransportRakNet})
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -52,7 +52,7 @@ func TestBedrockPingTimesOutWithoutResponse(t *testing.T) {
 	host, port := silentUDPListener(t)
 
 	start := time.Now()
-	err := Check(context.Background(), "bedrock", host, port, 200*time.Millisecond, IPv4)
+	err := Check(context.Background(), "bedrock", host, port, 200*time.Millisecond, IPv4, Options{Transport: TransportRakNet})
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -64,7 +64,7 @@ func TestBedrockPingTimesOutWithoutResponse(t *testing.T) {
 }
 
 func TestCheckRejectsUnknownProtocol(t *testing.T) {
-	if err := Check(context.Background(), "gopher", "127.0.0.1", 1, time.Second, IPv4); err == nil {
+	if err := Check(context.Background(), "gopher", "127.0.0.1", 1, time.Second, IPv4, Options{}); err == nil {
 		t.Error("Check() = nil, want error for unknown protocol")
 	}
 }

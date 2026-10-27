@@ -23,7 +23,7 @@ var RootCmd = &cobra.Command{
 	Use:   "mc-conn-poller",
 	Short: "External protocol-level connectivity poller for the Minecraft proxy",
 	Long: `mc-conn-poller probes the Minecraft proxy at the protocol level (Java
-Server List Ping, Bedrock RakNet unconnected ping) from this host and
+Server List Ping, Bedrock NetherNet signaling / RakNet unconnected ping) from this host and
 reports each successful handshake to the target's Healthchecks.io check.
 
 Targets are configured only via the YAML config file (see --config); there

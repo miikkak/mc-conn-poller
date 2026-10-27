@@ -35,7 +35,9 @@ func TestProbeOnceReportsOnlyOnProbeSuccess(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var pinged atomic.Bool
-			probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily) error { return tc.probeErr }
+			probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily, probe.Options) error {
+				return tc.probeErr
+			}
 			pingFn := func(context.Context, string, time.Duration, PingReport) error {
 				pinged.Store(true)
 				return nil
@@ -52,7 +54,9 @@ func TestProbeOnceReportsOnlyOnProbeSuccess(t *testing.T) {
 
 func TestProbeOnceSurvivesPingFailure(t *testing.T) {
 	target := config.Target{Name: "t", PingURL: "https://example.invalid/ping"}
-	probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily) error { return nil }
+	probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily, probe.Options) error {
+		return nil
+	}
 	pingFn := func(context.Context, string, time.Duration, PingReport) error { return errors.New("network error") }
 
 	// Must not panic; failure is logged and swallowed.
@@ -63,7 +67,9 @@ func TestProbeOnceReportsFamilyAndLatency(t *testing.T) {
 	target := config.Target{Name: "t", Protocol: "java", Host: "mc.example.invalid", Port: 25565, PingURL: "https://example.invalid/ping"}
 
 	var gotReport PingReport
-	probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily) error { return nil }
+	probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily, probe.Options) error {
+		return nil
+	}
 	pingFn := func(_ context.Context, _ string, _ time.Duration, report PingReport) error {
 		gotReport = report
 		return nil
@@ -98,7 +104,7 @@ func pollUntil(t *testing.T, target config.Target, n int) []probe.IPFamily {
 
 	var mu sync.Mutex
 	var families []probe.IPFamily
-	probeFn := func(_ context.Context, _ string, _ string, _ int, _ time.Duration, family probe.IPFamily) error {
+	probeFn := func(_ context.Context, _ string, _ string, _ int, _ time.Duration, family probe.IPFamily, _ probe.Options) error {
 		mu.Lock()
 		defer mu.Unlock()
 		families = append(families, family)
@@ -202,7 +208,7 @@ func TestRunPollsEveryTargetIndependently(t *testing.T) {
 
 	var mu sync.Mutex
 	probed := map[string]int{}
-	probeFn := func(_ context.Context, _ string, host string, _ int, _ time.Duration, _ probe.IPFamily) error {
+	probeFn := func(_ context.Context, _ string, host string, _ int, _ time.Duration, _ probe.IPFamily, _ probe.Options) error {
 		mu.Lock()
 		defer mu.Unlock()
 		probed[host]++

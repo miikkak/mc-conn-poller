@@ -37,9 +37,18 @@ type Target struct {
 	// Name identifies the target in logs. Must be unique across Targets.
 	Name string `mapstructure:"name"`
 
-	// Protocol is "java" (Server List Ping) or "bedrock" (RakNet
-	// unconnected ping).
+	// Protocol is "java" (Server List Ping) or "bedrock" (NetherNet
+	// signaling check and/or RakNet unconnected ping, per Transport).
 	Protocol string `mapstructure:"protocol"`
+
+	// Transport selects the Bedrock probe: "nethernet" (GET /v1/join on the
+	// TCP signaling port), "raknet" (UDP unconnected ping) or "auto" (the
+	// default when empty: NetherNet first, RakNet fallback). Bedrock only.
+	Transport string `mapstructure:"transport"`
+
+	// SignalingScheme is "https" (the default when empty) or "http" for the
+	// NetherNet signaling endpoint. Bedrock only.
+	SignalingScheme string `mapstructure:"signaling_scheme"`
 
 	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
@@ -125,6 +134,16 @@ func (t Target) validate() error {
 	}
 	if t.Protocol != ProtocolJava && t.Protocol != ProtocolBedrock {
 		return fmt.Errorf("protocol must be %q or %q, got %q", ProtocolJava, ProtocolBedrock, t.Protocol)
+	}
+	switch t.Transport {
+	case "", "auto", "nethernet", "raknet":
+	default:
+		return fmt.Errorf("transport must be \"auto\" (default), \"nethernet\" or \"raknet\", got %q", t.Transport)
+	}
+	switch t.SignalingScheme {
+	case "", "https", "http":
+	default:
+		return fmt.Errorf("signaling_scheme must be \"https\" (default) or \"http\", got %q", t.SignalingScheme)
 	}
 	if t.Host == "" {
 		return fmt.Errorf("host must not be empty")

@@ -89,6 +89,8 @@ func TestValidateTarget(t *testing.T) {
 		{"empty ping_url", func(tt *Target) { tt.PingURL = "" }},
 		{"relative ping_url", func(tt *Target) { tt.PingURL = "/not-absolute" }},
 		{"non-http(s) ping_url", func(tt *Target) { tt.PingURL = "ftp://hc-ping.com/00000000-0000-0000-0000-000000000000" }},
+		{"unknown transport", func(tt *Target) { tt.Transport = "quic" }},
+		{"unknown signaling_scheme", func(tt *Target) { tt.SignalingScheme = "ftp" }},
 		{"unknown ip_family", func(tt *Target) { tt.IPFamily = "both" }},
 		{"timeout not less than interval", func(tt *Target) { tt.Timeout = tt.Interval }},
 	}

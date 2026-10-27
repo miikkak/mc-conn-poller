@@ -30,6 +30,8 @@ targets:
     protocol: bedrock
     host: play.example.com
     port: 19132
+    # transport: auto          # auto (default: NetherNet, then RakNet fallback), nethernet, or raknet
+    # signaling_scheme: https  # https (default) or http, for the NetherNet signaling endpoint
     ping_url: https://hc-ping.com/11111111-1111-1111-1111-111111111111
 
   # To alert on IPv4 and IPv6 independently, pin every target for the same
