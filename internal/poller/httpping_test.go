@@ -57,7 +57,7 @@ func TestHTTPPingErrorDoesNotLeakURL(t *testing.T) {
 	const secret = "SECRET-PING-TOKEN"
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, r.URL.Path, http.StatusFound) // redirect loop
+		http.Redirect(w, r, r.URL.Path, http.StatusFound) //nolint:gosec // G710: the redirect loop to the same path is the test
 	}))
 	defer srv.Close()
 

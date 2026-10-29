@@ -12,7 +12,7 @@ import (
 // Bedrock ping against it can only end by timeout or cancellation.
 func silentUDPListener(t *testing.T) (host string, port int) {
 	t.Helper()
-	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	pc, err := (&net.ListenConfig{}).ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}

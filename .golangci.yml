@@ -1,0 +1,16 @@
+version: "2"
+
+linters:
+  # The golangci-lint defaults (errcheck, govet, ineffassign, staticcheck,
+  # unused), pinned here so a golangci-lint upgrade can't silently change
+  # what runs.
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - noctx
+
+formatters:
+  enable:
+    - gofmt
