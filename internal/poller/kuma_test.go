@@ -116,3 +116,32 @@ func TestHTTPPushKumaErrorDoesNotLeakToken(t *testing.T) {
 		})
 	}
 }
+
+func TestHTTPPushKumaSendsStatusDownWithReason(t *testing.T) {
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	const reason = "dial tcp 192.0.2.1:25565: i/o timeout & more=1"
+	report := testReport()
+	report.Latency = 0
+	report.Failure = reason
+
+	// A URL as copied from Kuma, with an empty ping that must not be sent as up.
+	if err := httpPushKuma(context.Background(), srv.URL+"/api/push/tok?status=up&msg=OK&ping=", time.Second, report); err != nil {
+		t.Fatalf("httpPushKuma() = %v, want nil", err)
+	}
+
+	if got := gotQuery.Get("status"); got != "down" {
+		t.Errorf("status = %q, want down", got)
+	}
+	if got := gotQuery.Get("msg"); got != reason {
+		t.Errorf("msg = %q, want %q (round-tripped through URL encoding)", got, reason)
+	}
+	if _, ok := gotQuery["ping"]; ok {
+		t.Errorf("ping = %v, want it omitted on a failure", gotQuery["ping"])
+	}
+}

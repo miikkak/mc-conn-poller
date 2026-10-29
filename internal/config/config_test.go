@@ -195,3 +195,23 @@ func TestValidateAcceptsIPFamilies(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateKumaReportFailure(t *testing.T) {
+	const kuma = "https://kuma.example.com/api/push/abc"
+
+	t.Run("requires kuma_push_url", func(t *testing.T) {
+		target := validTarget() // has ping_url only
+		target.KumaReportFailure = true
+		if err := (Config{Targets: []Target{target}}).Validate(); err == nil {
+			t.Error("Validate() = nil, want error for kuma_report_failure without kuma_push_url")
+		}
+	})
+	t.Run("accepted with kuma_push_url", func(t *testing.T) {
+		target := validTarget()
+		target.KumaPushURL = kuma
+		target.KumaReportFailure = true
+		if err := (Config{Targets: []Target{target}}).Validate(); err != nil {
+			t.Errorf("Validate() = %v, want nil", err)
+		}
+	})
+}

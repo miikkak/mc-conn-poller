@@ -50,8 +50,10 @@ Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`.
 
 ## Design Constraints
 
-- The daemon only ever reports to Healthchecks.io (and Uptime Kuma push monitors) on success and never calls `/fail`;
+- The daemon only ever pings the Healthchecks.io check on success and never calls `/fail`;
   see the README for why. Changes that report failures need a strong justification.
+  The single exception is the opt-in `kuma_report_failure`, which pushes `status=down`
+  to a per-poller Uptime Kuma push monitor only, never to Healthchecks.io.
 - Platform support is Linux with OpenRC. Please don't add systemd-specific code.
 
 ## Pull Request Process

@@ -88,14 +88,45 @@ where `ping` is the probe latency. A URL pasted straight from Kuma (with its
 overridden and any others are kept. Like `ping_url`, the push URL is a
 bearer secret and is kept out of logs and errors.
 
-As with Healthchecks.io, nothing is sent on failure. Kuma marks the push
-monitor DOWN when no push arrives within its heartbeat interval, so:
+By default nothing is sent on failure, as with Healthchecks.io. Kuma marks
+the push monitor DOWN when no push arrives within its heartbeat interval,
+so:
 
 - Set the monitor's **Heartbeat Interval** above the target's `interval`,
   and above `2 × interval` unless `ip_family` is pinned: with the default
   `alternate` each family pushes only every second round.
 - Several pollers may share one push monitor; any one of them reporting
   keeps it UP.
+
+#### Reporting failures (`kuma_report_failure`)
+
+Success-only pushes leave Kuma unable to tell "server down" from "poller
+down", the alert carries no reason, and detection takes up to a heartbeat
+interval. Setting `kuma_report_failure: true` (default `false`; requires
+`kuma_push_url`) makes the poller push
+`GET <kuma_push_url>?status=down&msg=<reason>` as soon as a probe fails, so
+Kuma alerts immediately with the probe error (for example
+`connection refused` or `i/o timeout`) as the message.
+
+This is the one place the poller reports a failure, and it is deliberately
+narrow: it is opt-in, it goes to the Kuma push monitor only (a Kuma monitor
+is normally per poller or per target), and **never to Healthchecks.io**,
+whose check is shared across pollers. A probe aborted by daemon shutdown is
+not reported. The message is the probe error on one line, truncated to 200
+characters, with any configured `ping_url` / `kuma_push_url` redacted; it
+names the monitored host and port, so keep it in mind if Kuma heartbeat
+messages are visible to others.
+
+Caveats:
+
+- **Shared monitor:** if several pollers share one push monitor, one
+  poller's `down` flips it while the others report `up`. Use one monitor per
+  poller, or leave this option off.
+- **Alternating address families:** with `ip_family` unset, a failure on one
+  family while the other succeeds flips the monitor up/down every round.
+  Pin `ip_family` (one target per family) when this option is on.
+- A `down` push is still a request to Kuma. If Kuma is unreachable, its
+  heartbeat timeout remains the fallback.
 
 **Replacing GameDig monitors:** create one Push monitor per Java/Bedrock
 entrypoint in Kuma, put its push URL in the matching target's

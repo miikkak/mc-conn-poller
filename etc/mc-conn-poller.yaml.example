@@ -28,6 +28,7 @@ targets:
     # A round (probe attempts + ping) must fit within "interval"; see README.
     ping_url: https://hc-ping.com/00000000-0000-0000-0000-000000000000
     # kuma_push_url: https://kuma.example.com/api/push/<token>  # optional: also push to an Uptime Kuma push monitor (ping_url may then be omitted)
+    # kuma_report_failure: false  # optional: also push status=down with the probe error on failure (needs kuma_push_url; use one Kuma monitor per poller and pin ip_family)
 
   - name: proxy-bedrock
     protocol: bedrock

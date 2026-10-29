@@ -3,8 +3,10 @@ package poller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -327,4 +329,104 @@ func TestProbeOnceNotifiersRunInParallel(t *testing.T) {
 	}
 	close(release)
 	<-done
+}
+
+func TestProbeOnceFailureReporting(t *testing.T) {
+	const hcURL, kumaURL = "https://hc.example.invalid/ping/HC-SECRET", "https://kuma.example.invalid/api/push/KUMA-SECRET"
+	probeFail := func(context.Context, string, string, int, time.Duration, probe.IPFamily, probe.Options) error {
+		return errors.New("dial tcp 192.0.2.1:25565: connect: connection refused")
+	}
+
+	tests := []struct {
+		name     string
+		target   config.Target
+		cancel   bool
+		wantKuma bool
+	}{
+		{"enabled reports to kuma", config.Target{PingURL: hcURL, KumaPushURL: kumaURL, KumaReportFailure: true}, false, true},
+		{"disabled is success-only", config.Target{PingURL: hcURL, KumaPushURL: kumaURL}, false, false},
+		{"no kuma url", config.Target{PingURL: hcURL, KumaReportFailure: true}, false, false},
+		{"shutdown is not a failure", config.Target{PingURL: hcURL, KumaPushURL: kumaURL, KumaReportFailure: true}, true, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tc.cancel {
+				cancel()
+			}
+
+			var hcCalled atomic.Bool
+			var mu sync.Mutex
+			var kumaReports []PingReport
+			hcFn := func(context.Context, string, time.Duration, PingReport) error {
+				hcCalled.Store(true)
+				return nil
+			}
+			kumaFn := func(_ context.Context, _ string, _ time.Duration, r PingReport) error {
+				mu.Lock()
+				defer mu.Unlock()
+				kumaReports = append(kumaReports, r)
+				return nil
+			}
+
+			probeOnce(ctx, tc.target, discardLogger(), testInfo, probe.IPv4, probeFail, hcFn, kumaFn)
+
+			if hcCalled.Load() {
+				t.Error("healthchecks.io was notified of a failure, want never")
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if !tc.wantKuma {
+				if len(kumaReports) != 0 {
+					t.Errorf("kuma got %d reports, want 0", len(kumaReports))
+				}
+				return
+			}
+			if len(kumaReports) != 1 {
+				t.Fatalf("kuma got %d reports, want 1", len(kumaReports))
+			}
+			if got := kumaReports[0].Failure; !strings.Contains(got, "connection refused") {
+				t.Errorf("Failure = %q, want the probe error", got)
+			}
+			if kumaReports[0].Latency != 0 {
+				t.Errorf("Latency = %s on a failure, want 0", kumaReports[0].Latency)
+			}
+		})
+	}
+}
+
+func TestFailureReason(t *testing.T) {
+	const hcURL, kumaURL = "https://hc.example.invalid/ping/HC-SECRET", "https://kuma.example.invalid/api/push/KUMA-SECRET"
+
+	t.Run("redacts configured notifier URLs", func(t *testing.T) {
+		err := fmt.Errorf("surprise: %s and %s", hcURL, kumaURL)
+		got := failureReason(err, hcURL, kumaURL)
+		for _, secret := range []string{"HC-SECRET", "KUMA-SECRET"} {
+			if strings.Contains(got, secret) {
+				t.Errorf("reason %q leaks %s", got, secret)
+			}
+		}
+	})
+	t.Run("single line", func(t *testing.T) {
+		got := failureReason(errors.Join(errors.New("nethernet: timeout"), errors.New("raknet: timeout")))
+		if strings.ContainsAny(got, "\n\r\t") {
+			t.Errorf("reason %q is not single-line", got)
+		}
+		if !strings.Contains(got, "nethernet: timeout") || !strings.Contains(got, "raknet: timeout") {
+			t.Errorf("reason %q lost part of the joined error", got)
+		}
+	})
+	t.Run("truncated", func(t *testing.T) {
+		got := failureReason(errors.New(strings.Repeat("é", 5*maxFailureReason)))
+		if n := len([]rune(got)); n > maxFailureReason+1 {
+			t.Errorf("reason has %d runes, want at most %d", n, maxFailureReason+1)
+		}
+	})
+	t.Run("empty error text", func(t *testing.T) {
+		if got := failureReason(errors.New("")); got != "probe failed" {
+			t.Errorf("reason = %q, want %q", got, "probe failed")
+		}
+	})
 }

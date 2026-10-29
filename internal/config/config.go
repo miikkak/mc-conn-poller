@@ -83,6 +83,14 @@ type Target struct {
 	// is only used on a successful probe: the monitor goes down when pushes
 	// stop arriving within its heartbeat interval.
 	KumaPushURL string `mapstructure:"kuma_push_url"`
+
+	// KumaReportFailure opts in to pushing status=down, with the probe error
+	// as the message, to the Kuma push monitor when a probe fails, so Kuma
+	// alerts immediately with a reason instead of waiting out its heartbeat
+	// interval. Off by default (success-only). It never applies to
+	// Healthchecks.io, whose check is shared across pollers. Requires
+	// KumaPushURL.
+	KumaReportFailure bool `mapstructure:"kuma_report_failure"`
 }
 
 const (
@@ -210,6 +218,9 @@ func (t Target) validate() error {
 	}
 	if t.PingURL == "" && t.KumaPushURL == "" {
 		return fmt.Errorf("at least one of ping_url or kuma_push_url must be set")
+	}
+	if t.KumaReportFailure && t.KumaPushURL == "" {
+		return fmt.Errorf("kuma_report_failure requires kuma_push_url")
 	}
 	if err := validateNotifierURL("ping_url", t.PingURL); err != nil {
 		return err

@@ -48,6 +48,10 @@ type PingReport struct {
 	Port       int
 	IPFamily   probe.IPFamily
 	Latency    time.Duration
+	// Failure, when non-empty, marks this as a failed probe and holds the
+	// (sanitized, truncated) reason. Only the Kuma notifier is ever given a
+	// failure report; Latency is unset then.
+	Failure string
 }
 
 // Run starts one polling goroutine per target and blocks until ctx is
@@ -122,48 +126,20 @@ func pollTarget(ctx context.Context, t config.Target, logger *slog.Logger, info 
 	}
 }
 
-// probeOnce reports to the target's notifiers (Healthchecks.io, and Uptime
-// Kuma if configured) only on a successful probe. On
-// failure it deliberately does nothing — no /fail call — since the check is
-// shared across pollers on multiple hosts; an explicit fail from a poller
-// with a locally broken path would flip a check other pollers are still
-// successfully reporting on. Healthchecks.io's own grace-period silence
-// model gives the correct "no poller anywhere succeeded" semantics instead.
-func probeOnce(ctx context.Context, t config.Target, logger *slog.Logger, info Info, family probe.IPFamily, probeFn Prober, pingFn, kumaFn Notifier) {
-	start := time.Now()
-	if err := probeFn(ctx, t.Protocol, t.Host, t.Port, t.Timeout, family, probe.Options{
-		Transport:       t.Transport,
-		SignalingScheme: t.SignalingScheme,
-		Logger:          logger.With("target", t.Name),
-	}); err != nil {
-		logger.Debug("probe failed, not reporting", "target", t.Name, "ip_family", family, "error", err)
-		return
-	}
-	latency := time.Since(start)
+// notifierCall is one notifier to run for a round: its name for logs, the
+// URL it reports to (empty means not configured, so it is skipped) and fn.
+type notifierCall struct {
+	name string
+	url  string
+	fn   Notifier
+}
 
-	report := PingReport{
-		PollerInfo: info,
-		Target:     t.Name,
-		Protocol:   t.Protocol,
-		Host:       t.Host,
-		Port:       t.Port,
-		IPFamily:   family,
-		Latency:    latency,
-	}
-
-	// Notifiers run in parallel, each bounded by PingTimeout, so a second
-	// notifier doesn't lengthen the worst-case round that config validation
-	// accounts for. One failing never affects the other.
-	notifiers := []struct {
-		name string
-		url  string
-		fn   Notifier
-	}{
-		{"healthchecks.io", t.PingURL, pingFn},
-		{"uptime kuma", t.KumaPushURL, kumaFn},
-	}
+// notify runs the configured calls in parallel, each bounded by PingTimeout,
+// so a second notifier doesn't lengthen the worst-case round that config
+// validation accounts for. One failing never affects the other.
+func notify(ctx context.Context, t config.Target, logger *slog.Logger, family probe.IPFamily, report PingReport, calls ...notifierCall) {
 	var wg sync.WaitGroup
-	for _, n := range notifiers {
+	for _, n := range calls {
 		if n.url == "" {
 			continue
 		}
@@ -174,10 +150,83 @@ func probeOnce(ctx context.Context, t config.Target, logger *slog.Logger, info I
 				logger.Warn("notifier failed", "notifier", n.name, "target", t.Name, "ip_family", family, "error", err)
 				return
 			}
-			logger.Debug("probe succeeded, reported", "notifier", n.name, "target", t.Name, "ip_family", family)
+			logger.Debug("reported", "notifier", n.name, "target", t.Name, "ip_family", family, "failure", report.Failure != "")
 		}()
 	}
 	wg.Wait()
+}
+
+// probeOnce reports a successful probe to the target's notifiers
+// (Healthchecks.io, and Uptime Kuma if configured). On failure it never
+// touches Healthchecks.io — no /fail call — since the check is shared across
+// pollers on multiple hosts; an explicit fail from a poller with a locally
+// broken path would flip a check other pollers are still successfully
+// reporting on. Healthchecks.io's own grace-period silence model gives the
+// correct "no poller anywhere succeeded" semantics instead.
+//
+// The one exception is opt-in per target (kuma_report_failure): a Kuma push
+// monitor is normally per poller or per target, so a status=down push with
+// the reason gives an immediate, explained alert rather than a silent
+// heartbeat timeout. A probe that failed only because the daemon is shutting
+// down is not a target failure and is never reported.
+func probeOnce(ctx context.Context, t config.Target, logger *slog.Logger, info Info, family probe.IPFamily, probeFn Prober, pingFn, kumaFn Notifier) {
+	report := PingReport{
+		PollerInfo: info,
+		Target:     t.Name,
+		Protocol:   t.Protocol,
+		Host:       t.Host,
+		Port:       t.Port,
+		IPFamily:   family,
+	}
+
+	start := time.Now()
+	if err := probeFn(ctx, t.Protocol, t.Host, t.Port, t.Timeout, family, probe.Options{
+		Transport:       t.Transport,
+		SignalingScheme: t.SignalingScheme,
+		Logger:          logger.With("target", t.Name),
+	}); err != nil {
+		if ctx.Err() != nil {
+			return // shutting down: the probe was aborted, the target did not fail
+		}
+		if !t.KumaReportFailure {
+			logger.Debug("probe failed, not reporting", "target", t.Name, "ip_family", family, "error", err)
+			return
+		}
+		logger.Debug("probe failed, reporting to uptime kuma", "target", t.Name, "ip_family", family, "error", err)
+		report.Failure = failureReason(err, t.PingURL, t.KumaPushURL)
+		notify(ctx, t, logger, family, report, notifierCall{"uptime kuma", t.KumaPushURL, kumaFn})
+		return
+	}
+	report.Latency = time.Since(start)
+
+	notify(ctx, t, logger, family, report,
+		notifierCall{"healthchecks.io", t.PingURL, pingFn},
+		notifierCall{"uptime kuma", t.KumaPushURL, kumaFn},
+	)
+}
+
+// maxFailureReason bounds the probe error text pushed to Kuma as msg.
+const maxFailureReason = 200
+
+// failureReason renders a probe error as a single-line, bounded message for
+// Kuma's msg. Probe errors only carry the monitored target's own host:port,
+// never a ping or push URL, but any configured notifier URL (a bearer
+// secret) is redacted anyway so a future error path can't leak one.
+func failureReason(err error, secrets ...string) string {
+	msg := err.Error()
+	for _, s := range secrets {
+		if s != "" {
+			msg = strings.ReplaceAll(msg, s, "[redacted]")
+		}
+	}
+	msg = strings.Join(strings.Fields(msg), " ") // errors.Join output is multi-line
+	if r := []rune(msg); len(r) > maxFailureReason {
+		msg = string(r[:maxFailureReason]) + "…"
+	}
+	if msg == "" {
+		msg = "probe failed"
+	}
+	return msg
 }
 
 const (
@@ -247,9 +296,10 @@ func httpPing(ctx context.Context, pingURL string, timeout time.Duration, report
 	return nil
 }
 
-// httpPushKuma reports a successful probe to an Uptime Kuma push monitor:
-// GET <push URL>?status=up&msg=OK&ping=<latency ms>. These parameters
-// override any already on the configured URL (Kuma's UI hands out a URL with
+// httpPushKuma reports a probe to an Uptime Kuma push monitor: for a success
+// GET <push URL>?status=up&msg=OK&ping=<latency ms>, for a failed probe
+// (report.Failure set) ?status=down&msg=<reason>. These parameters override
+// any already on the configured URL (Kuma's UI hands out a URL with
 // "?status=up&msg=OK&ping=" appended); other query parameters are kept.
 func httpPushKuma(ctx context.Context, pushURL string, timeout time.Duration, report PingReport) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -260,9 +310,15 @@ func httpPushKuma(ctx context.Context, pushURL string, timeout time.Duration, re
 		return fmt.Errorf("build push request: %w", stripURL(err))
 	}
 	q := u.Query()
-	q.Set("status", "up")
-	q.Set("msg", "OK")
-	q.Set("ping", strconv.FormatInt(report.Latency.Milliseconds(), 10))
+	if report.Failure != "" {
+		q.Set("status", "down")
+		q.Set("msg", report.Failure)
+		q.Del("ping") // no latency for a failed probe
+	} else {
+		q.Set("status", "up")
+		q.Set("msg", "OK")
+		q.Set("ping", strconv.FormatInt(report.Latency.Milliseconds(), 10))
+	}
 	u.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
