@@ -29,7 +29,8 @@ depend() {
 # which can read/execute almost anything regardless of a file's permission
 # bits, so a root-only check could pass here and still fail once command_user
 # drops to MCCP_USER. Without sudo the check is skipped; a start failure then
-# shows up in the log file instead.
+# shows up in the log file instead. Needs a sudo that works without a TTY (the
+# default); with "Defaults requiretty" in sudoers this check fails at boot.
 _mccp_user_can() {
   command -v sudo >/dev/null 2>&1 || return 0
   sudo -u "${MCCP_USER}" test "$1" "$2"
