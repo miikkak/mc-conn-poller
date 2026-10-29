@@ -23,6 +23,11 @@ import (
 	"time"
 )
 
+// protocolVersion is sent in the handshake. A server does not validate it for
+// a status ping, so it only needs to be a plausible current value, not match
+// the target. Bump it (and the edition below) when the client baseline moves.
+const protocolVersion = 777 // Java Edition 26.3
+
 const (
 	maxResponseLength = 1 << 20 // guards against a misbehaving peer claiming an absurd length
 	maxHostLength     = 255     // the handshake's server address string is limited to 255 characters
@@ -118,8 +123,8 @@ func writeHandshake(w io.Writer, host string, port int) error {
 	}
 
 	var packet bytes.Buffer
-	packet.Write(varInt(0x00)) // packet ID
-	packet.Write(varInt(777))  // protocol version (Java Edition 26.3); unvalidated by the server for a status ping
+	packet.Write(varInt(0x00))            // packet ID
+	packet.Write(varInt(protocolVersion)) // protocol version
 	packet.Write(packString(host))
 
 	portBytes := make([]byte, 2)
