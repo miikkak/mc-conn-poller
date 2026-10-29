@@ -16,10 +16,25 @@ import (
 // so syslogd's own filtering/rotation/permissions apply to daemon logs
 // instead of a file the daemon or supervise-daemon has to manage itself.
 type syslogHandler struct {
-	writer *syslog.Writer
+	writer syslogWriter
 	level  slog.Leveler
 	attrs  []groupedAttr
 	group  string
+}
+
+// syslogWriter is the part of *syslog.Writer the handler uses, so tests can
+// substitute a fake and assert the severity each record is emitted at.
+type syslogWriter interface {
+	Debug(m string) error
+	Info(m string) error
+	Warning(m string) error
+	Err(m string) error
+}
+
+// dialSyslog connects to the local syslog daemon. It is a variable so tests
+// can point it at a socket they own instead of the system's.
+var dialSyslog = func(tag string) (*syslog.Writer, error) {
+	return syslog.New(syslog.LOG_DAEMON|syslog.LOG_INFO, tag)
 }
 
 // groupedAttr pairs an attr attached via With with the group it was under
@@ -35,7 +50,7 @@ type groupedAttr struct {
 // record is actually emitted via the Writer's per-severity methods, so it's
 // irrelevant here.
 func newSyslogHandler(tag string, level slog.Leveler) (*syslogHandler, error) {
-	w, err := syslog.New(syslog.LOG_DAEMON|syslog.LOG_INFO, tag)
+	w, err := dialSyslog(tag)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to syslog: %w", err)
 	}
