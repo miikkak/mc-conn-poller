@@ -25,7 +25,8 @@ import (
 
 // protocolVersion is sent in the handshake. A server does not validate it for
 // a status ping, so it only needs to be a plausible current value, not match
-// the target. Bump it (and the edition below) when the client baseline moves.
+// the target. When the client baseline moves, bump the number and the edition
+// named in the trailing comment together.
 const protocolVersion = 777 // Java Edition 26.3
 
 const (
