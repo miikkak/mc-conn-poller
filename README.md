@@ -3,7 +3,7 @@
 A lightweight daemon that probes the Minecraft proxy at the protocol level
 (Java Server List Ping, Bedrock NetherNet signaling / RakNet unconnected ping) from an external
 vantage point and reports success to a shared
-[Healthchecks.io](https://healthchecks.io) check.
+[Healthchecks.io](https://healthchecks.io) check (and, optionally, an Uptime Kuma push monitor).
 
 Runs directly on the other hosts in the fleet — not on the Minecraft host
 itself, since that's the target being monitored, and a poller running
@@ -64,6 +64,43 @@ targets:
     port: 25565
     ping_url: https://hc-ping.com/00000000-0000-0000-0000-000000000000
 ```
+
+### Uptime Kuma
+
+A target can also (or instead) report to an [Uptime Kuma](https://github.com/louislam/uptime-kuma)
+**Push** monitor by setting `kuma_push_url` to the monitor's push URL. At
+least one of `ping_url` and `kuma_push_url` is required; with both set, each
+successful probe is reported to both, in parallel, and one failing does not
+affect the other.
+
+```yaml
+targets:
+  - name: proxy-java
+    protocol: java
+    host: play.example.com
+    port: 25565
+    kuma_push_url: https://kuma.example.com/api/push/<token>
+```
+
+On success the poller sends `GET <kuma_push_url>?status=up&msg=OK&ping=<ms>`,
+where `ping` is the probe latency. A URL pasted straight from Kuma (with its
+`?status=up&msg=OK&ping=` suffix) works: those three parameters are
+overridden and any others are kept. Like `ping_url`, the push URL is a
+bearer secret and is kept out of logs and errors.
+
+As with Healthchecks.io, nothing is sent on failure. Kuma marks the push
+monitor DOWN when no push arrives within its heartbeat interval, so:
+
+- Set the monitor's **Heartbeat Interval** above the target's `interval`,
+  and above `2 × interval` unless `ip_family` is pinned: with the default
+  `alternate` each family pushes only every second round.
+- Several pollers may share one push monitor; any one of them reporting
+  keeps it UP.
+
+**Replacing GameDig monitors:** create one Push monitor per Java/Bedrock
+entrypoint in Kuma, put its push URL in the matching target's
+`kuma_push_url`, then delete the GameDig monitor. The poller's Bedrock
+`auto` transport covers NetherNet, which GameDig's RakNet check does not.
 
 ### Timeouts
 

@@ -43,7 +43,7 @@ func TestProbeOnceReportsOnlyOnProbeSuccess(t *testing.T) {
 				return nil
 			}
 
-			probeOnce(context.Background(), target, discardLogger(), testInfo, probe.IPv4, probeFn, pingFn)
+			probeOnce(context.Background(), target, discardLogger(), testInfo, probe.IPv4, probeFn, pingFn, noopNotifier)
 
 			if pinged.Load() != tc.wantPinged {
 				t.Errorf("pinged = %v, want %v", pinged.Load(), tc.wantPinged)
@@ -60,7 +60,7 @@ func TestProbeOnceSurvivesPingFailure(t *testing.T) {
 	pingFn := func(context.Context, string, time.Duration, PingReport) error { return errors.New("network error") }
 
 	// Must not panic; failure is logged and swallowed.
-	probeOnce(context.Background(), target, discardLogger(), testInfo, probe.IPv4, probeFn, pingFn)
+	probeOnce(context.Background(), target, discardLogger(), testInfo, probe.IPv4, probeFn, pingFn, noopNotifier)
 }
 
 func TestProbeOnceReportsFamilyAndLatency(t *testing.T) {
@@ -75,7 +75,7 @@ func TestProbeOnceReportsFamilyAndLatency(t *testing.T) {
 		return nil
 	}
 
-	probeOnce(context.Background(), target, discardLogger(), testInfo, probe.IPv6, probeFn, pingFn)
+	probeOnce(context.Background(), target, discardLogger(), testInfo, probe.IPv6, probeFn, pingFn, noopNotifier)
 
 	if gotReport.IPFamily != probe.IPv6 {
 		t.Errorf("report.IPFamily = %q, want %q", gotReport.IPFamily, probe.IPv6)
@@ -115,7 +115,7 @@ func pollUntil(t *testing.T, target config.Target, n int) []probe.IPFamily {
 	}
 	pingFn := func(context.Context, string, time.Duration, PingReport) error { return nil }
 
-	pollTarget(ctx, target, discardLogger(), testInfo, probeFn, pingFn)
+	pollTarget(ctx, target, discardLogger(), testInfo, probeFn, pingFn, noopNotifier)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -219,7 +219,7 @@ func TestRunPollsEveryTargetIndependently(t *testing.T) {
 	}
 	pingFn := func(context.Context, string, time.Duration, PingReport) error { return nil }
 
-	if err := run(ctx, cfg, discardLogger(), testInfo, probeFn, pingFn); err != nil {
+	if err := run(ctx, cfg, discardLogger(), testInfo, probeFn, pingFn, noopNotifier); err != nil {
 		t.Fatalf("run() = %v, want nil", err)
 	}
 
@@ -229,5 +229,65 @@ func TestRunPollsEveryTargetIndependently(t *testing.T) {
 		if probed[host] != 1 {
 			t.Errorf("probes of %s = %d, want 1 (probed = %v)", host, probed[host], probed)
 		}
+	}
+}
+
+func noopNotifier(context.Context, string, time.Duration, PingReport) error { return nil }
+
+func TestProbeOnceNotifiesEachConfiguredNotifier(t *testing.T) {
+	probeOK := func(context.Context, string, string, int, time.Duration, probe.IPFamily, probe.Options) error {
+		return nil
+	}
+	probeFail := func(context.Context, string, string, int, time.Duration, probe.IPFamily, probe.Options) error {
+		return errors.New("unreachable")
+	}
+	const hcURL, kumaURL = "https://hc.example.invalid/ping", "https://kuma.example.invalid/api/push/tok"
+
+	tests := []struct {
+		name         string
+		probeFn      Prober
+		target       config.Target
+		hcErr        error
+		kumaErr      error
+		wantHC       bool
+		wantKuma     bool
+		wantHCTime   time.Duration
+		wantKumaTime time.Duration
+	}{
+		{"both on success", probeOK, config.Target{PingURL: hcURL, KumaPushURL: kumaURL, PingTimeout: 3 * time.Second}, nil, nil, true, true, 3 * time.Second, 3 * time.Second},
+		{"healthchecks only", probeOK, config.Target{PingURL: hcURL}, nil, nil, true, false, 0, 0},
+		{"kuma only", probeOK, config.Target{KumaPushURL: kumaURL}, nil, nil, false, true, 0, 0},
+		{"neither on probe failure", probeFail, config.Target{PingURL: hcURL, KumaPushURL: kumaURL}, nil, nil, false, false, 0, 0},
+		{"healthchecks failing does not block kuma", probeOK, config.Target{PingURL: hcURL, KumaPushURL: kumaURL}, errors.New("boom"), nil, true, true, 0, 0},
+		{"kuma failing does not block healthchecks", probeOK, config.Target{PingURL: hcURL, KumaPushURL: kumaURL}, nil, errors.New("boom"), true, true, 0, 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var mu sync.Mutex
+			got := map[string]time.Duration{}
+			record := func(name string, err error) Notifier {
+				return func(_ context.Context, u string, timeout time.Duration, _ PingReport) error {
+					mu.Lock()
+					defer mu.Unlock()
+					got[name+"|"+u] = timeout
+					return err
+				}
+			}
+
+			probeOnce(context.Background(), tc.target, discardLogger(), testInfo, probe.IPv4, tc.probeFn,
+				record("hc", tc.hcErr), record("kuma", tc.kumaErr))
+
+			mu.Lock()
+			defer mu.Unlock()
+			gotTimeout, gotHC := got["hc|"+hcURL]
+			if gotHC != tc.wantHC || (gotHC && gotTimeout != tc.wantHCTime) {
+				t.Errorf("healthchecks called = %v (timeout %s), want %v (timeout %s)", gotHC, gotTimeout, tc.wantHC, tc.wantHCTime)
+			}
+			gotTimeout, gotKuma := got["kuma|"+kumaURL]
+			if gotKuma != tc.wantKuma || (gotKuma && gotTimeout != tc.wantKumaTime) {
+				t.Errorf("kuma called = %v (timeout %s), want %v (timeout %s)", gotKuma, gotTimeout, tc.wantKuma, tc.wantKumaTime)
+			}
+		})
 	}
 }

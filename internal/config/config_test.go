@@ -100,7 +100,9 @@ func TestValidateTarget(t *testing.T) {
 		{"port too large", func(tt *Target) { tt.Port = 70000 }},
 		{"non-positive interval", func(tt *Target) { tt.Interval = 0 }},
 		{"non-positive timeout", func(tt *Target) { tt.Timeout = 0 }},
-		{"empty ping_url", func(tt *Target) { tt.PingURL = "" }},
+		{"no ping_url or kuma_push_url", func(tt *Target) { tt.PingURL = "" }},
+		{"relative kuma_push_url", func(tt *Target) { tt.KumaPushURL = "/not-absolute" }},
+		{"non-http(s) kuma_push_url", func(tt *Target) { tt.KumaPushURL = "ftp://kuma.example.com/api/push/abc" }},
 		{"relative ping_url", func(tt *Target) { tt.PingURL = "/not-absolute" }},
 		{"non-http(s) ping_url", func(tt *Target) { tt.PingURL = "ftp://hc-ping.com/00000000-0000-0000-0000-000000000000" }},
 		{"unknown transport", func(tt *Target) { tt.Transport = "quic" }},
@@ -142,6 +144,43 @@ func TestValidateDoesNotEchoPingURL(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), secret) {
 		t.Errorf("error %q leaks the ping URL", err)
+	}
+}
+
+func TestValidateDoesNotEchoKumaPushURL(t *testing.T) {
+	const secret = "SECRET-PUSH-TOKEN"
+
+	target := validTarget()
+	target.KumaPushURL = "ftp://kuma.example.com/api/push/" + secret
+	err := Config{Targets: []Target{target}}.Validate()
+	if err == nil {
+		t.Fatal("Validate() = nil, want error for non-http(s) kuma_push_url")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("error %q leaks the push URL", err)
+	}
+}
+
+func TestValidateAcceptsNotifierCombinations(t *testing.T) {
+	const kuma = "https://kuma.example.com/api/push/abc"
+
+	tests := []struct {
+		name string
+		hc   string
+		kuma string
+	}{
+		{"healthchecks only", "https://hc-ping.com/00000000-0000-0000-0000-000000000000", ""},
+		{"kuma only", "", kuma},
+		{"both", "https://hc-ping.com/00000000-0000-0000-0000-000000000000", kuma},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			target := validTarget()
+			target.PingURL, target.KumaPushURL = tc.hc, tc.kuma
+			if err := (Config{Targets: []Target{target}}).Validate(); err != nil {
+				t.Errorf("Validate() = %v, want nil", err)
+			}
+		})
 	}
 }
 
