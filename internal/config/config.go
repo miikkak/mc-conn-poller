@@ -76,6 +76,13 @@ type Target struct {
 	// ping-key+slug URL — Healthchecks.io always hands you the complete
 	// URL to copy, so there's no need to reconstruct one from parts here).
 	PingURL string `mapstructure:"ping_url"`
+
+	// KumaPushURL is the full push URL of an Uptime Kuma push monitor
+	// (https://kuma.example.com/api/push/<token>). Optional; at least one of
+	// PingURL and KumaPushURL must be set, and both may be. Like PingURL it
+	// is only used on a successful probe: the monitor goes down when pushes
+	// stop arriving within its heartbeat interval.
+	KumaPushURL string `mapstructure:"kuma_push_url"`
 }
 
 const (
@@ -201,12 +208,24 @@ func (t Target) validate() error {
 	if worst := t.worstCaseRound(); worst >= t.Interval {
 		return fmt.Errorf("worst-case round (%s: %s) must be less than interval (%s)", worst, t.worstCaseBreakdown(), t.Interval)
 	}
-	if t.PingURL == "" {
-		return fmt.Errorf("ping_url must not be empty")
+	if t.PingURL == "" && t.KumaPushURL == "" {
+		return fmt.Errorf("at least one of ping_url or kuma_push_url must be set")
 	}
-	if u, err := url.ParseRequestURI(t.PingURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		// The value is deliberately not echoed: a ping URL is a bearer secret.
-		return fmt.Errorf("ping_url must be an absolute http(s) URL")
+	if err := validateNotifierURL("ping_url", t.PingURL); err != nil {
+		return err
+	}
+	return validateNotifierURL("kuma_push_url", t.KumaPushURL)
+}
+
+// validateNotifierURL checks that an optional notifier URL, if set, is an
+// absolute http(s) URL. The value is deliberately not echoed: ping and push
+// URLs are bearer secrets.
+func validateNotifierURL(field, value string) error {
+	if value == "" {
+		return nil
+	}
+	if u, err := url.ParseRequestURI(value); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("%s must be an absolute http(s) URL", field)
 	}
 	return nil
 }

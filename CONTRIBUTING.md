@@ -50,7 +50,7 @@ Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`.
 
 ## Design Constraints
 
-- The daemon only ever pings the Healthchecks.io check on success and never calls `/fail`;
+- The daemon only ever reports to Healthchecks.io (and Uptime Kuma push monitors) on success and never calls `/fail`;
   see the README for why. Changes that report failures need a strong justification.
 - Platform support is Linux with OpenRC. Please don't add systemd-specific code.
 

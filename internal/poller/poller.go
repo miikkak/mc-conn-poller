@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +22,10 @@ import (
 // Prober matches probe.Check's signature so tests can substitute a fake.
 type Prober func(ctx context.Context, protocol, host string, port int, timeout time.Duration, family probe.IPFamily, opts probe.Options) error
 
-// Pinger matches httpPing's signature so tests can substitute a fake.
-type Pinger func(ctx context.Context, pingURL string, timeout time.Duration, report PingReport) error
+// Notifier reports one successful probe to an external monitor at the given
+// URL. httpPing and httpPushKuma match its signature, so tests can
+// substitute fakes.
+type Notifier func(ctx context.Context, url string, timeout time.Duration, report PingReport) error
 
 // Info identifies this daemon process/host, reported to Healthchecks.io as
 // diagnostic context (User-Agent and ping body) alongside each successful
@@ -50,16 +53,16 @@ type PingReport struct {
 // Run starts one polling goroutine per target and blocks until ctx is
 // canceled.
 func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, info Info) error {
-	return run(ctx, cfg, logger, info, probe.Check, httpPing)
+	return run(ctx, cfg, logger, info, probe.Check, httpPing, httpPushKuma)
 }
 
-func run(ctx context.Context, cfg config.Config, logger *slog.Logger, info Info, probeFn Prober, pingFn Pinger) error {
+func run(ctx context.Context, cfg config.Config, logger *slog.Logger, info Info, probeFn Prober, pingFn, kumaFn Notifier) error {
 	var wg sync.WaitGroup
 	for _, t := range cfg.Targets {
 		wg.Add(1)
 		go func(t config.Target) {
 			defer wg.Done()
-			pollTarget(ctx, t, logger, info, probeFn, pingFn)
+			pollTarget(ctx, t, logger, info, probeFn, pingFn, kumaFn)
 		}(t)
 	}
 	wg.Wait()
@@ -101,10 +104,10 @@ func familySelector(mode string) func() probe.IPFamily {
 // (or poller) should set ip_family to that family instead. To alert on one
 // family specifically, configure one pinned target per family, each with its
 // own Healthchecks.io check.
-func pollTarget(ctx context.Context, t config.Target, logger *slog.Logger, info Info, probeFn Prober, pingFn Pinger) {
+func pollTarget(ctx context.Context, t config.Target, logger *slog.Logger, info Info, probeFn Prober, pingFn, kumaFn Notifier) {
 	nextFamily := familySelector(t.IPFamily)
 
-	probeOnce(ctx, t, logger, info, nextFamily(), probeFn, pingFn)
+	probeOnce(ctx, t, logger, info, nextFamily(), probeFn, pingFn, kumaFn)
 
 	ticker := time.NewTicker(t.Interval)
 	defer ticker.Stop()
@@ -114,18 +117,19 @@ func pollTarget(ctx context.Context, t config.Target, logger *slog.Logger, info 
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			probeOnce(ctx, t, logger, info, nextFamily(), probeFn, pingFn)
+			probeOnce(ctx, t, logger, info, nextFamily(), probeFn, pingFn, kumaFn)
 		}
 	}
 }
 
-// probeOnce reports to Healthchecks.io only on a successful probe. On
+// probeOnce reports to the target's notifiers (Healthchecks.io, and Uptime
+// Kuma if configured) only on a successful probe. On
 // failure it deliberately does nothing — no /fail call — since the check is
 // shared across pollers on multiple hosts; an explicit fail from a poller
 // with a locally broken path would flip a check other pollers are still
 // successfully reporting on. Healthchecks.io's own grace-period silence
 // model gives the correct "no poller anywhere succeeded" semantics instead.
-func probeOnce(ctx context.Context, t config.Target, logger *slog.Logger, info Info, family probe.IPFamily, probeFn Prober, pingFn Pinger) {
+func probeOnce(ctx context.Context, t config.Target, logger *slog.Logger, info Info, family probe.IPFamily, probeFn Prober, pingFn, kumaFn Notifier) {
 	start := time.Now()
 	if err := probeFn(ctx, t.Protocol, t.Host, t.Port, t.Timeout, family, probe.Options{
 		Transport:       t.Transport,
@@ -146,11 +150,34 @@ func probeOnce(ctx context.Context, t config.Target, logger *slog.Logger, info I
 		IPFamily:   family,
 		Latency:    latency,
 	}
-	if err := pingFn(ctx, t.PingURL, t.PingTimeout, report); err != nil {
-		logger.Warn("healthchecks.io ping failed", "target", t.Name, "ip_family", family, "error", err)
-		return
+
+	// Notifiers run in parallel, each bounded by PingTimeout, so a second
+	// notifier doesn't lengthen the worst-case round that config validation
+	// accounts for. One failing never affects the other.
+	notifiers := []struct {
+		name string
+		url  string
+		fn   Notifier
+	}{
+		{"healthchecks.io", t.PingURL, pingFn},
+		{"uptime kuma", t.KumaPushURL, kumaFn},
 	}
-	logger.Debug("probe succeeded, reported to healthchecks.io", "target", t.Name, "ip_family", family)
+	var wg sync.WaitGroup
+	for _, n := range notifiers {
+		if n.url == "" {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := n.fn(ctx, n.url, t.PingTimeout, report); err != nil {
+				logger.Warn("notifier failed", "notifier", n.name, "target", t.Name, "ip_family", family, "error", err)
+				return
+			}
+			logger.Debug("probe succeeded, reported", "notifier", n.name, "target", t.Name, "ip_family", family)
+		}()
+	}
+	wg.Wait()
 }
 
 const (
@@ -216,6 +243,45 @@ func httpPing(ctx context.Context, pingURL string, timeout time.Duration, report
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("ping returned status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// httpPushKuma reports a successful probe to an Uptime Kuma push monitor:
+// GET <push URL>?status=up&msg=OK&ping=<latency ms>. These parameters
+// override any already on the configured URL (Kuma's UI hands out a URL with
+// "?status=up&msg=OK&ping=" appended); other query parameters are kept.
+func httpPushKuma(ctx context.Context, pushURL string, timeout time.Duration, report PingReport) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	u, err := url.Parse(pushURL)
+	if err != nil {
+		return fmt.Errorf("build push request: %w", stripURL(err))
+	}
+	q := u.Query()
+	q.Set("status", "up")
+	q.Set("msg", "OK")
+	q.Set("ping", strconv.FormatInt(report.Latency.Milliseconds(), 10))
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("build push request: %w", stripURL(err))
+	}
+	req.Header.Set("User-Agent", userAgent(report.PollerInfo))
+
+	resp, err := pingClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("send push to %s: %w", req.URL.Host, stripURL(err))
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxPingBodyDrain)) // drain so the connection can be reused
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("push returned status %d", resp.StatusCode)
 	}
 	return nil
 }
