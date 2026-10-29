@@ -81,6 +81,12 @@ func init() {
 	RootCmd.PersistentFlags().String("log-level", def.LogLevel, "log level: debug, info, warn, error")
 	RootCmd.PersistentFlags().Bool("log-syslog", def.LogSyslog, "send logs to syslog (facility daemon) instead of stderr")
 
+	bindFlags()
+}
+
+// bindFlags binds the config keys to their flags. A separate function so
+// tests that viper.Reset() can restore the bindings.
+func bindFlags() {
 	bind := map[string]string{
 		"default_interval": "default-interval",
 		"default_timeout":  "default-timeout",
@@ -93,6 +99,10 @@ func init() {
 		}
 	}
 }
+
+// configSearchPaths are searched for mc-conn-poller.yaml when --config is
+// not given. A variable so tests don't read the host's real config.
+var configSearchPaths = []string{"/usr/local/etc", "/etc"}
 
 // configReadErr holds any error from initConfig's viper.ReadInConfig other
 // than "file not found" — RunE reports it before Validate gets a chance to
@@ -111,8 +121,9 @@ func initConfig() {
 		viper.SetConfigFile(cfgFile)
 	} else {
 		viper.SetConfigName("mc-conn-poller")
-		viper.AddConfigPath("/usr/local/etc")
-		viper.AddConfigPath("/etc")
+		for _, p := range configSearchPaths {
+			viper.AddConfigPath(p)
+		}
 	}
 
 	viper.SetEnvPrefix("mccp")
