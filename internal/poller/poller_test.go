@@ -291,3 +291,40 @@ func TestProbeOnceNotifiesEachConfiguredNotifier(t *testing.T) {
 		})
 	}
 }
+
+func TestProbeOnceNotifiersRunInParallel(t *testing.T) {
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	notifier := func(context.Context, string, time.Duration, PingReport) error {
+		started <- struct{}{}
+		<-release
+		return nil
+	}
+	probeFn := func(context.Context, string, string, int, time.Duration, probe.IPFamily, probe.Options) error {
+		return nil
+	}
+	target := config.Target{
+		PingURL:     "https://hc.example.invalid/ping",
+		KumaPushURL: "https://kuma.example.invalid/api/push/tok",
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		probeOnce(context.Background(), target, discardLogger(), testInfo, probe.IPv4, probeFn, notifier, notifier)
+	}()
+
+	// Both notifiers must be in flight before either is released; a
+	// sequential implementation would block on the first one forever.
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			close(release)
+			<-done
+			t.Fatal("notifiers did not start in parallel")
+		}
+	}
+	close(release)
+	<-done
+}

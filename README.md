@@ -171,7 +171,8 @@ make install    # binary -> /usr/local/sbin
 ```
 
 Copy `etc/mc-conn-poller.yaml.example` to `/usr/local/etc/mc-conn-poller.yaml`
-and edit it — at least one target with a real `ping_url` is required.
+and edit it — at least one target with a real `ping_url` or `kuma_push_url`
+is required.
 
 ## Building
 
