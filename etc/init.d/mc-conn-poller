@@ -1,0 +1,77 @@
+#!/sbin/openrc-run
+# shellcheck shell=bash
+# shellcheck disable=SC2034 # the service variables below are read by openrc-run
+
+name="Minecraft Connectivity Poller"
+description="Probes the Minecraft proxy at the protocol level and reports success to Healthchecks.io and/or Uptime Kuma"
+
+# Default configuration (override in /etc/conf.d/mc-conn-poller)
+MCCP_BINARY="${MCCP_BINARY:-/usr/local/sbin/mc-conn-poller}"
+MCCP_CONFIG="${MCCP_CONFIG:-/usr/local/etc/mc-conn-poller.yaml}"
+MCCP_LOG_DIR="${MCCP_LOG_DIR:-/var/log/mc-conn-poller}"
+MCCP_USER="${MCCP_USER:-mc-conn-poller}"
+MCCP_GROUP="${MCCP_GROUP:-mc-conn-poller}"
+
+supervisor="supervise-daemon"
+command="${MCCP_BINARY}"
+command_args="--config ${MCCP_CONFIG}"
+command_user="${MCCP_USER}:${MCCP_GROUP}"
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="${MCCP_LOG_DIR}/mc-conn-poller.log"
+error_log="${MCCP_LOG_DIR}/mc-conn-poller.log"
+
+depend() {
+  need net
+  use logger
+}
+
+# Runs "test <operator> <path>" as MCCP_USER. start_pre() itself runs as root,
+# which can read/execute almost anything regardless of a file's permission
+# bits, so a root-only check could pass here and still fail once command_user
+# drops to MCCP_USER. Without sudo the check is skipped; a start failure then
+# shows up in the log file instead. Needs a sudo that works without a TTY (the
+# default); with "Defaults requiretty" in sudoers this check fails at boot.
+_mccp_user_can() {
+  command -v sudo >/dev/null 2>&1 || return 0
+  sudo -u "${MCCP_USER}" test "$1" "$2"
+}
+
+start_pre() {
+  if ! getent group "${MCCP_GROUP}" >/dev/null 2>&1; then
+    eerror "Group '${MCCP_GROUP}' does not exist"
+    eerror "Create it with: groupadd -r ${MCCP_GROUP}"
+    return 1
+  fi
+
+  if ! getent passwd "${MCCP_USER}" >/dev/null 2>&1; then
+    eerror "User '${MCCP_USER}' does not exist"
+    eerror "Create it with: useradd -r -M -s /sbin/nologin -g ${MCCP_GROUP} ${MCCP_USER}"
+    return 1
+  fi
+
+  if [[ ! -f "${MCCP_BINARY}" ]]; then
+    eerror "mc-conn-poller binary not found: ${MCCP_BINARY}"
+    return 1
+  fi
+  if ! _mccp_user_can -x "${MCCP_BINARY}"; then
+    eerror "mc-conn-poller binary not executable as ${MCCP_USER}: ${MCCP_BINARY}"
+    return 1
+  fi
+
+  if [[ ! -f "${MCCP_CONFIG}" ]]; then
+    eerror "Config file not found: ${MCCP_CONFIG}"
+    eerror "Copy etc/mc-conn-poller.yaml.example from the release archive or repository to ${MCCP_CONFIG} and edit it"
+    return 1
+  fi
+  if ! _mccp_user_can -r "${MCCP_CONFIG}"; then
+    eerror "Config file not readable as ${MCCP_USER}: ${MCCP_CONFIG}"
+    return 1
+  fi
+
+  # Created if missing and re-asserted on every start, so ownership drift
+  # (e.g. a manual chown) self-heals instead of silently persisting.
+  if ! checkpath -q -d -m 0750 -o "${command_user}" "${MCCP_LOG_DIR}"; then
+    eerror "Failed to prepare log directory ${MCCP_LOG_DIR}"
+    return 1
+  fi
+}

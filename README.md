@@ -161,18 +161,36 @@ receives `SIGINT`/`SIGTERM`.
 
 ### OpenRC
 
-The `init.d`/`conf.d` service definitions live in a separate private
-repository, not in this repo, and are deployed by my own tooling. This repo
-only builds and installs the binary; write your own `openrc-run` script that
-runs it with `--config`:
+A working `supervise-daemon` service is provided as a starting point:
+[etc/init.d/mc-conn-poller](etc/init.d/mc-conn-poller) and its settings file
+[etc/conf.d/mc-conn-poller](etc/conf.d/mc-conn-poller). Both are also in the
+release archive. To set it up:
 
 ```shell
-make install    # binary -> /usr/local/sbin
+make install            # binary -> /usr/local/sbin
+make install-openrc     # init script -> /etc/init.d, conf.d -> /etc/conf.d (kept if it exists)
+
+groupadd -r mc-conn-poller
+useradd -r -M -s /sbin/nologin -g mc-conn-poller mc-conn-poller
+
+install -D -m 0640 -g mc-conn-poller etc/mc-conn-poller.yaml.example /usr/local/etc/mc-conn-poller.yaml
+$EDITOR /usr/local/etc/mc-conn-poller.yaml
+
+rc-update add mc-conn-poller default
+rc-service mc-conn-poller start
 ```
 
-Copy `etc/mc-conn-poller.yaml.example` to `/usr/local/etc/mc-conn-poller.yaml`
-and edit it — at least one target with a real `ping_url` or `kuma_push_url`
-is required.
+At least one target with a real `ping_url` or `kuma_push_url` is required.
+Keep the config file readable only by the service user and root: the ping and
+push URLs in it are bearer secrets. The service runs as the unprivileged
+`mc-conn-poller` user and, on start, checks that the user, binary and config
+exist and are usable, and prepares the log directory. Override the paths and
+user in `/etc/conf.d/mc-conn-poller` (see the comments there).
+
+By default the daemon logs to stderr, which the service writes to
+`/var/log/mc-conn-poller/mc-conn-poller.log`; rotate that file with your usual
+log rotation. Setting `log_syslog: true` in the config sends logs to syslog
+instead, leaving that file for startup errors and crashes only.
 
 ## Building
 

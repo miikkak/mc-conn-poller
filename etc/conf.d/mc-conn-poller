@@ -1,0 +1,30 @@
+# Minecraft Connectivity Poller — /etc/conf.d/mc-conn-poller
+#
+# Settings for the OpenRC service /etc/init.d/mc-conn-poller. Everything below
+# is optional; the values shown are the defaults. The daemon's own settings
+# (targets, intervals, ping URLs) live in the YAML file named by MCCP_CONFIG,
+# see etc/mc-conn-poller.yaml.example.
+#
+# Note: variables here are shell variables for the init script, not daemon
+# configuration. The daemon's own MCCP_-prefixed settings (for example
+# MCCP_LOG_LEVEL) must be exported to reach it:
+#   export MCCP_LOG_LEVEL="debug"
+
+# Path to the mc-conn-poller binary.
+#MCCP_BINARY="/usr/local/sbin/mc-conn-poller"
+
+# Path to the daemon's YAML config file. It must be readable by MCCP_USER and,
+# because it holds ping/push URLs (bearer secrets), should not be world-readable.
+#MCCP_CONFIG="/usr/local/etc/mc-conn-poller.yaml"
+
+# Directory for the daemon's stdout/stderr log. With the default log_syslog:
+# false the daemon logs here; with log_syslog: true it logs to syslog instead
+# and this file only holds startup errors and crashes. Created by the init
+# script on start.
+#MCCP_LOG_DIR="/var/log/mc-conn-poller"
+
+# Unprivileged user and group the service runs as. They must already exist:
+#   groupadd -r mc-conn-poller
+#   useradd -r -M -s /sbin/nologin -g mc-conn-poller mc-conn-poller
+#MCCP_USER="mc-conn-poller"
+#MCCP_GROUP="mc-conn-poller"
