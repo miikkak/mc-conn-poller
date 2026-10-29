@@ -320,3 +320,26 @@ func TestWriteHandshakeRejectsInvalidInput(t *testing.T) {
 		}
 	})
 }
+
+func TestWriteHandshakeSendsProtocolVersion(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeHandshake(&buf, "mc.example.invalid", 25565); err != nil {
+		t.Fatalf("writeHandshake() = %v, want nil", err)
+	}
+
+	r := bufio.NewReader(&buf)
+	if _, err := readVarInt(r); err != nil { // packet length
+		t.Fatalf("read packet length: %v", err)
+	}
+	id, err := readVarInt(r)
+	if err != nil || id != 0x00 {
+		t.Fatalf("packet id = %d, %v; want 0, nil", id, err)
+	}
+	version, err := readVarInt(r)
+	if err != nil {
+		t.Fatalf("read protocol version: %v", err)
+	}
+	if int(version) != protocolVersion {
+		t.Errorf("protocol version = %d, want %d", version, protocolVersion)
+	}
+}
