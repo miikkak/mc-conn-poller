@@ -65,6 +65,12 @@ type Target struct {
 	Interval time.Duration `mapstructure:"interval"`
 	Timeout  time.Duration `mapstructure:"timeout"`
 
+	// PingTimeout bounds the Healthchecks.io ping that follows a successful
+	// probe, independently of Timeout: how slow the Minecraft server may be
+	// and how slow Healthchecks.io may be are different questions. Defaults
+	// to DefaultPingTimeout.
+	PingTimeout time.Duration `mapstructure:"ping_timeout"`
+
 	// PingURL is the full Healthchecks.io ping URL for this target's check
 	// (e.g. https://hc-ping.com/<uuid>, or a self-hosted instance's
 	// ping-key+slug URL — Healthchecks.io always hands you the complete
@@ -83,6 +89,10 @@ const (
 	IPFamilyIPv6      = "ipv6"
 	IPFamilyAlternate = "alternate"
 )
+
+// DefaultPingTimeout applies to any target that doesn't set its own
+// PingTimeout.
+const DefaultPingTimeout = 5 * time.Second
 
 // Defaults returns a Config populated with the daemon's default values,
 // before any file/env/flag overrides are applied.
@@ -105,6 +115,9 @@ func (c *Config) ApplyDefaults() {
 		if c.Targets[i].Timeout <= 0 {
 			c.Targets[i].Timeout = c.DefaultTimeout
 		}
+		if c.Targets[i].PingTimeout <= 0 {
+			c.Targets[i].PingTimeout = DefaultPingTimeout
+		}
 	}
 }
 
@@ -126,6 +139,26 @@ func (c Config) Validate() error {
 		seen[t.Name] = true
 	}
 	return nil
+}
+
+// probeAttempts is how many sequential timeout-bounded attempts one probe may
+// make: a bedrock target in auto transport tries NetherNet, then RakNet.
+func (t Target) probeAttempts() int {
+	if t.Protocol == ProtocolBedrock && (t.Transport == "" || t.Transport == "auto") {
+		return 2
+	}
+	return 1
+}
+
+// worstCaseRound is the longest a poll round can take: all probe attempts
+// but the last time out, the last succeeds just before its own timeout, and
+// the ping then takes its full PingTimeout.
+func (t Target) worstCaseRound() time.Duration {
+	return time.Duration(t.probeAttempts())*t.Timeout + t.PingTimeout
+}
+
+func (t Target) worstCaseBreakdown() string {
+	return fmt.Sprintf("%d × timeout %s + ping_timeout %s", t.probeAttempts(), t.Timeout, t.PingTimeout)
 }
 
 func (t Target) validate() error {
@@ -162,8 +195,11 @@ func (t Target) validate() error {
 	if t.Timeout <= 0 {
 		return fmt.Errorf("timeout must be positive")
 	}
-	if t.Timeout >= t.Interval {
-		return fmt.Errorf("timeout (%s) must be less than interval (%s)", t.Timeout, t.Interval)
+	if t.PingTimeout <= 0 {
+		return fmt.Errorf("ping_timeout must be positive")
+	}
+	if worst := t.worstCaseRound(); worst >= t.Interval {
+		return fmt.Errorf("worst-case round (%s: %s) must be less than interval (%s)", worst, t.worstCaseBreakdown(), t.Interval)
 	}
 	if t.PingURL == "" {
 		return fmt.Errorf("ping_url must not be empty")

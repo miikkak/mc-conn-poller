@@ -23,7 +23,9 @@ targets:
     port: 25565
     # interval: 60s        # optional, overrides default_interval
     # timeout: 5s          # optional, overrides default_timeout
+    # ping_timeout: 5s     # optional: Healthchecks.io ping timeout (default 5s)
     # ip_family: alternate # optional: ipv4, ipv6, or alternate (default)
+    # A round (probe attempts + ping) must fit within "interval"; see README.
     ping_url: https://hc-ping.com/00000000-0000-0000-0000-000000000000
 
   - name: proxy-bedrock

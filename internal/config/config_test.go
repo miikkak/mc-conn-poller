@@ -14,7 +14,21 @@ func validTarget() Target {
 		Port:     25565,
 		Interval: time.Minute,
 		Timeout:  5 * time.Second,
-		PingURL:  "https://hc-ping.com/00000000-0000-0000-0000-000000000000",
+
+		PingTimeout: 5 * time.Second,
+		PingURL:     "https://hc-ping.com/00000000-0000-0000-0000-000000000000",
+	}
+}
+
+func TestValidateAcceptsSingleAttemptBedrockWithinInterval(t *testing.T) {
+	target := validTarget()
+	target.Protocol = ProtocolBedrock
+	target.Transport = "raknet"
+	target.Interval = 10 * time.Second
+	target.Timeout = 4 * time.Second
+	cfg := Config{Targets: []Target{target}}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() = %v, want nil (4s + 5s ping < 10s)", err)
 	}
 }
 
@@ -92,7 +106,17 @@ func TestValidateTarget(t *testing.T) {
 		{"unknown transport", func(tt *Target) { tt.Transport = "quic" }},
 		{"unknown signaling_scheme", func(tt *Target) { tt.SignalingScheme = "ftp" }},
 		{"unknown ip_family", func(tt *Target) { tt.IPFamily = "both" }},
+		{"non-positive ping_timeout", func(tt *Target) { tt.PingTimeout = 0 }},
 		{"timeout not less than interval", func(tt *Target) { tt.Timeout = tt.Interval }},
+		{"timeout plus ping_timeout not less than interval", func(tt *Target) {
+			tt.Interval = 10 * time.Second
+			tt.Timeout = 8 * time.Second
+		}},
+		{"bedrock auto doubles timeout", func(tt *Target) {
+			tt.Protocol = ProtocolBedrock
+			tt.Interval = 10 * time.Second
+			tt.Timeout = 3 * time.Second
+		}},
 	}
 
 	for _, tc := range tests {

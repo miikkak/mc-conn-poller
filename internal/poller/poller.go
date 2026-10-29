@@ -146,7 +146,7 @@ func probeOnce(ctx context.Context, t config.Target, logger *slog.Logger, info I
 		IPFamily:   family,
 		Latency:    latency,
 	}
-	if err := pingFn(ctx, t.PingURL, t.Timeout, report); err != nil {
+	if err := pingFn(ctx, t.PingURL, t.PingTimeout, report); err != nil {
 		logger.Warn("healthchecks.io ping failed", "target", t.Name, "ip_family", family, "error", err)
 		return
 	}
