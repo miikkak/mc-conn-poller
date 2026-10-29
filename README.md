@@ -65,6 +65,16 @@ targets:
     ping_url: https://hc-ping.com/00000000-0000-0000-0000-000000000000
 ```
 
+### Timeouts
+
+`timeout` bounds the probe and `ping_timeout` (default `5s`) bounds the
+Healthchecks.io ping that follows a successful probe. Rounds run
+sequentially, so a round can take up to `timeout + ping_timeout`, and
+validation requires that to be less than `interval` (otherwise ticks are
+dropped and pings arrive less often than configured). A `bedrock` target in
+`auto` transport (below) makes up to two probe attempts, so its bound is
+`2 × timeout + ping_timeout`.
+
 ### Bedrock transport
 
 Bedrock clients from 26.60 on speak only NetherNet (WebRTC), and Geyser can
