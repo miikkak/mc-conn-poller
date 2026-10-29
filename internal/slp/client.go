@@ -17,12 +17,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"strconv"
 	"time"
 )
 
-const maxResponseLength = 1 << 20 // guards against a misbehaving peer claiming an absurd length
+const (
+	maxResponseLength = 1 << 20 // guards against a misbehaving peer claiming an absurd length
+	maxHostLength     = 255     // the handshake's server address string is limited to 255 characters
+)
 
 // Status performs a Server List Ping against host:port over the given
 // network ("tcp", "tcp4", or "tcp6") and returns an error unless a
@@ -81,7 +85,7 @@ func Query(ctx context.Context, host string, port int, timeout time.Duration, ne
 	if err != nil {
 		return nil, fmt.Errorf("read json length: %w", err)
 	}
-	if jsonLen < 0 || jsonLen > int32(br.Len()) {
+	if jsonLen < 0 || int(jsonLen) > br.Len() {
 		return nil, fmt.Errorf("invalid json length: %d", jsonLen)
 	}
 	jsonBytes := make([]byte, jsonLen)
@@ -106,6 +110,13 @@ func Query(ctx context.Context, host string, port int, timeout time.Duration, ne
 }
 
 func writeHandshake(w io.Writer, host string, port int) error {
+	if port < 1 || port > math.MaxUint16 {
+		return fmt.Errorf("port %d out of range", port)
+	}
+	if len(host) > maxHostLength {
+		return fmt.Errorf("host is %d bytes, longer than the protocol's %d", len(host), maxHostLength)
+	}
+
 	var packet bytes.Buffer
 	packet.Write(varInt(0x00)) // packet ID
 	packet.Write(varInt(777))  // protocol version (Java Edition 26.3); unvalidated by the server for a status ping
@@ -121,7 +132,7 @@ func writeHandshake(w io.Writer, host string, port int) error {
 }
 
 func writePacket(w io.Writer, data []byte) error {
-	if _, err := w.Write(varInt(int32(len(data)))); err != nil {
+	if _, err := w.Write(varInt(len(data))); err != nil {
 		return err
 	}
 	_, err := w.Write(data)
@@ -146,12 +157,15 @@ func readPacket(r *bufio.Reader) ([]byte, error) {
 
 func packString(s string) []byte {
 	b := []byte(s)
-	return append(varInt(int32(len(b))), b...)
+	return append(varInt(len(b)), b...)
 }
 
-func varInt(n int32) []byte {
+// varInt encodes n as a Minecraft VarInt. n must fit in an int32: every
+// caller passes a protocol constant or the length of a packet or string
+// bounded well below that (see maxHostLength and the fixed handshake).
+func varInt(n int) []byte {
 	buf := make([]byte, 0, 5)
-	u := uint32(n)
+	u := uint32(n) //nolint:gosec // G115: two's-complement reinterpretation is the VarInt encoding; n fits int32 (see above)
 	for {
 		b := byte(u & 0x7F)
 		u >>= 7

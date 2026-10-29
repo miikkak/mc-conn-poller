@@ -6,6 +6,7 @@ import (
 	"context"
 	"net"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -16,7 +17,7 @@ import (
 func fakeServer(t *testing.T, response []byte) (host string, port int) {
 	t.Helper()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -56,7 +57,7 @@ func validStatusResponse(json string) []byte {
 	packet = append(packet, packString(json)...)
 
 	var full []byte
-	full = append(full, varInt(int32(len(packet)))...)
+	full = append(full, varInt(len(packet))...)
 	full = append(full, packet...)
 	return full
 }
@@ -68,7 +69,7 @@ func validStatusResponse(json string) []byte {
 func stallingServer(t *testing.T, partial []byte) (host string, port int, sent <-chan struct{}) {
 	t.Helper()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -228,7 +229,7 @@ func TestQuery_AcceptsEmptyStatusObject(t *testing.T) {
 func TestStatus_WrongPacketID(t *testing.T) {
 	packet := append(varInt(0x01), packString(`{}`)...)
 	var full []byte
-	full = append(full, varInt(int32(len(packet)))...)
+	full = append(full, varInt(len(packet))...)
 	full = append(full, packet...)
 
 	host, port := fakeServer(t, full)
@@ -241,7 +242,7 @@ func TestStatus_WrongPacketID(t *testing.T) {
 func TestStatus_OversizedJSONLength(t *testing.T) {
 	packet := append(varInt(0x00), varInt(1<<20)...) // claims a 1 MiB string, no body follows
 	var full []byte
-	full = append(full, varInt(int32(len(packet)))...)
+	full = append(full, varInt(len(packet))...)
 	full = append(full, packet...)
 
 	host, port := fakeServer(t, full)
@@ -252,7 +253,7 @@ func TestStatus_OversizedJSONLength(t *testing.T) {
 }
 
 func TestStatus_ConnectionRefused(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -266,7 +267,7 @@ func TestStatus_ConnectionRefused(t *testing.T) {
 }
 
 func TestVarIntRoundTrip(t *testing.T) {
-	cases := []int32{0, 1, 127, 128, 255, 25565, 2097151, 1 << 30}
+	cases := []int{0, 1, 127, 128, 255, 25565, 2097151, 1 << 30}
 
 	for _, n := range cases {
 		encoded := varInt(n)
@@ -274,7 +275,7 @@ func TestVarIntRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatalf("readVarInt(%d): %v", n, err)
 		}
-		if got != n {
+		if int(got) != n {
 			t.Fatalf("readVarInt roundtrip = %d, want %d", got, n)
 		}
 	}
@@ -287,4 +288,35 @@ func TestReadVarIntRejectsInt32Overflow(t *testing.T) {
 	if _, err := readVarInt(bufio.NewReader(bytes.NewReader(encoded))); err == nil {
 		t.Fatal("readVarInt() = nil error, want error for overflowing varint")
 	}
+}
+
+func TestWriteHandshakeRejectsInvalidInput(t *testing.T) {
+	tests := []struct {
+		name string
+		host string
+		port int
+	}{
+		{"port zero", "mc.example.invalid", 0},
+		{"port negative", "mc.example.invalid", -1},
+		{"port too large", "mc.example.invalid", 65536},
+		{"host too long", strings.Repeat("a", maxHostLength+1), 25565},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := writeHandshake(&buf, tc.host, tc.port); err == nil {
+				t.Error("writeHandshake() = nil, want error")
+			}
+			if buf.Len() != 0 {
+				t.Errorf("wrote %d bytes before rejecting the input", buf.Len())
+			}
+		})
+	}
+
+	t.Run("valid edge values", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := writeHandshake(&buf, strings.Repeat("a", maxHostLength), 65535); err != nil {
+			t.Errorf("writeHandshake() = %v, want nil", err)
+		}
+	})
 }
