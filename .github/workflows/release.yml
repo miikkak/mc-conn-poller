@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   release:
-    uses: miikkak/workflows/.github/workflows/release-go.yml@015ef727092e50a5e39cd67b39f3a885a22c58dc # main
+    uses: miikkak/workflows/.github/workflows/release-go.yml@4e98320b615507cfe54da82d8e932a08f45d8967 # main
     with:
       binary: mc-conn-poller
       extra-files: "README.md LICENSE etc/mc-conn-poller.yaml.example etc/init.d/mc-conn-poller etc/conf.d/mc-conn-poller"
