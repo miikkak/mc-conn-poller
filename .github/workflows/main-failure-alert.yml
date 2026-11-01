@@ -1,0 +1,31 @@
+---
+name: Main Failure Alert
+
+# Opens an issue when one of the listed workflows fails on main and closes it
+# when it passes again. See miikkak/workflows main-failure-alert.yml. The
+# names must match the `name:` of this repo's own workflows.
+#
+# Never add "Main Failure Alert" (this workflow) to the list or drop the
+# filter: each completed run would trigger itself again, an endless loop.
+# Tag-triggered workflows (releases) are not covered: their runs carry the
+# tag as head_branch, not main.
+on: # yamllint disable-line rule:truthy
+  workflow_run:
+    workflows:
+      - Cache Cleanup
+      - Lint
+      - Post-Merge Pipeline
+      - Pre-commit Hook Updates
+      - Scheduled Security Scan
+      - Secret Scan
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+jobs:
+  alert:
+    uses: miikkak/workflows/.github/workflows/main-failure-alert.yml@015ef727092e50a5e39cd67b39f3a885a22c58dc # main
